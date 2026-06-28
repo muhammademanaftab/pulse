@@ -25,29 +25,29 @@ source: claude-code
 
 ## Summary
 
-Made the local dev stack boot in 8 seconds instead of 30, and moved notification delivery onto Kafka so it survives a worker crash. Settled how rate limits are stored.
+Made the app open much faster, fixed a bug that was dropping some notifications, and decided to keep people signed in for longer.
 
 ## Work log
 
-### [[CLI Tool]]
+### [[Web App]]
 
-- Cut cold start of the local stack from 30s to 8s by caching the dependency build.
-- Added `pulse deploy` with a `--dry-run` flag that prints the diff before applying.
+- Made the home page load in about 1 second instead of 4.
+- Added a "preview before you publish" button so you can check a change before it goes live.
 
 ### [[Notifications]]
 
-- Moved delivery onto Kafka so retries survive a worker crash, no more lost emails.
-- Added a per-channel opt-out, honored across both email and push.
+- Fixed the bug where some emails and alerts were getting lost.
+- Let people choose which alerts they get, by email or on their phone.
 
 ## Decisions & signals
 
-- Chose Redis over in-memory for rate limits so they hold across pod restarts. See [[Decisions]].
-- Recurring this week: every new endpoint needs a rate limit before it ships.
+- Decided to keep people signed in for 30 days instead of asking every time. See [[Decisions]].
+- Came up all week: anything that deletes data should ask "are you sure?" first.
 
 ## Next
 
-- Load-test the Kafka path before turning it on in production.
-- Wire the CLI's `--dry-run` output into CI.
+- Test the notification fix under heavy load before turning it on for everyone.
+- Add the new preview button to the mobile app too.
 ```
 
 ## More than a journal
