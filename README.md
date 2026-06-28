@@ -25,27 +25,29 @@ source: claude-code
 
 ## Summary
 
-Worked across 2 projects.
+Made the local dev stack boot in 8 seconds instead of 30, and moved notification delivery onto Kafka so it survives a worker crash. Settled how rate limits are stored.
 
 ## Work log
 
 ### [[CLI Tool]]
 
-- Cut cold-start of the local stack from 30s to 8s.
-- Added `pulse deploy` with a dry-run flag and a diff preview.
+- Cut cold start of the local stack from 30s to 8s by caching the dependency build.
+- Added `pulse deploy` with a `--dry-run` flag that prints the diff before applying.
 
 ### [[Notifications]]
 
-- Moved delivery onto Kafka so retries survive a worker crash.
-- Added per-channel opt-out honored across email and push.
+- Moved delivery onto Kafka so retries survive a worker crash, no more lost emails.
+- Added a per-channel opt-out, honored across both email and push.
 
 ## Decisions & signals
 
-- Chose Redis over in-memory for rate limits so it survives pod restarts. See [[Decisions]].
+- Chose Redis over in-memory for rate limits so they hold across pod restarts. See [[Decisions]].
+- Recurring this week: every new endpoint needs a rate limit before it ships.
 
 ## Next
 
-- Follow up on open threads.
+- Load-test the Kafka path before turning it on in production.
+- Wire the CLI's `--dry-run` output into CI.
 ```
 
 ## More than a journal
