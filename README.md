@@ -2,6 +2,10 @@
 
 Turn your Claude Code sessions into a daily work journal, automatically.
 
+![Six months of Claude Code sessions, captured by Pulse and turned into a linked vault of daily and project notes](assets/graph.png)
+
+*Every session becomes a linked daily note. Over months it builds a connected map of your work, here shown as an Obsidian graph.*
+
 Pulse records every Claude Code session to a database you own, and each night it
 writes a plain-markdown note of what you did, organized by project and ready to open
 in Obsidian. You stop guessing what you got done last Tuesday.
