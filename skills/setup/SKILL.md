@@ -62,7 +62,8 @@ Run everything from the repo root. Do the phases in order.
    - **Name:** `Pulse Daily Digest`
    - **Instructions:** paste the fenced block from `routines/digest.md`
    - **Model:** latest Sonnet or Opus
-   - **Repos:** attach two: this `pulse` repo and their notes repo
+   - **Repos:** attach their notes repo. For the pulse code, either attach this repo
+     too, or let the routine clone it at runtime (recommended, only the notes repo attached)
    - **Trigger:** daily, late evening in their timezone
    - **Environment** `pulse`: **Network access = Full**, and these `.env` variables
      (read `CONVEX_URL`/`CONVEX_TOKEN` from their `~/.pulse/.env` and give them the

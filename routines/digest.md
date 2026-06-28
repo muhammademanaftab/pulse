@@ -7,5 +7,5 @@ environment, permissions). Trigger: daily, late evening in `PULSE_TZ`.
 Instructions (paste into the routine):
 
 ```
-Read pulse/skills/digest/SKILL.md and follow every step exactly, for yesterday in $PULSE_TZ. Write the note into the notes repo at $NOTES_REPO. Do not push if any gate or the reviewer subagent fails. After the push is verified, mark the digested rows processed. Report the note path and commit SHA.
+If the pulse repo is not already checked out, clone it: git clone https://github.com/muhammademanaftab/pulse.git. Read pulse/skills/digest/SKILL.md and follow every step exactly, for yesterday in $PULSE_TZ. Write the note into the notes repo at $NOTES_REPO. Do not push if any gate or the reviewer subagent fails. After the push is verified, mark the digested rows processed. Report the note path and commit SHA.
 ```
