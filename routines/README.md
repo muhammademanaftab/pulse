@@ -1,38 +1,63 @@
 # Pulse routines
 
-Each file is one [claude.ai](https://claude.ai/code) scheduled agent that runs a
-Pulse skill on a cron with your machine off. One file = one paste-ready routine.
-Paste a file's fenced block into the routine's Instructions box and attach the
-`pulse` environment.
+A routine is a scheduled [claude.ai](https://claude.ai/code) agent that runs a Pulse
+skill on a cron with your machine off. One file here = one routine.
 
 | Routine | File | Cron |
 |---|---|---|
-| [Digest](digest.md) | yesterday's rows → daily note in your notes repo | `0 5 * * *` |
+| Digest | [digest.md](digest.md) | daily, late evening |
 
-## Environment: `pulse`
+## Create the routine (every field)
 
-One claude.ai environment, shared by every routine:
+In claude.ai, create a routine and fill these:
 
-| Variable | Meaning |
+| Field | Value |
 |---|---|
-| `CONVEX_URL` | your `.convex.site` URL (same as `~/.pulse/.env`) |
-| `CONVEX_TOKEN` | your `INGEST_TOKEN` (same as `~/.pulse/.env`) |
-| `PULSE_TZ` | your IANA timezone, e.g. `Europe/Berlin` |
+| **Name** | `Pulse Daily Digest` |
+| **Instructions** | the fenced block in [digest.md](digest.md) |
+| **Model** | latest Sonnet or Opus |
+| **Repos** | attach two: this **pulse** repo (reads the digest skill) and your **notes** repo (gets the note) |
+| **Trigger** | daily cron, late in your day (e.g. `11:59 PM` in your timezone) |
+| **Environment** | the `pulse` cloud environment below |
+| **Permissions** | allow git push to the notes repo |
+| **Connectors** | GitHub connector if you attach the notes repo instead of using a token |
 
-The scripts read these (env wins over any file), so the routine needs no config
-file on disk.
+## The `pulse` cloud environment
 
-## Notes repo access
+| Setting | Value |
+|---|---|
+| **Name** | `pulse` |
+| **Network access** | **Full** (needs Convex + GitHub) |
+| **Setup script** | none |
 
-Give the routine read/write access to your notes repo one of two ways, whichever
-you prefer:
+**Environment variables** (`.env` format):
 
-- **Attach the GitHub repo to the routine** on claude.ai. The built-in GitHub
-  integration handles the checkout and the push for you, no token needed.
-- **Or use a GitHub token.** Set `GITHUB_TOKEN` (a fine-grained PAT with contents
-  read/write on the notes repo) plus `NOTES_REPO_REMOTE` (its HTTPS clone URL) in
-  the environment; the routine clones and pushes over HTTPS with
+```
+CONVEX_URL=<your .convex.site URL, from ~/.pulse/.env>
+CONVEX_TOKEN=<your INGEST_TOKEN, from ~/.pulse/.env>
+PULSE_TZ=<your IANA timezone, e.g. Europe/Berlin>
+NOTES_REPO=notes
+NOTES_REPO_REMOTE=https://github.com/<you>/<notes-repo>.git
+GITHUB_TOKEN=<fine-grained PAT, contents read/write on the notes repo>
+```
+
+`CONVEX_URL` and `CONVEX_TOKEN` are the same values `~/.pulse/.env` holds. `GITHUB_TOKEN`
+is only needed for the token path (skip it if you attach the notes repo as a connector).
+
+**Keep this environment private.** Its variables include secrets (`CONVEX_TOKEN`,
+`GITHUB_TOKEN`) and claude.ai shows them to anyone who can use the environment. Do not
+share it.
+
+## Notes repo access (pick one)
+
+- **Attach the repo:** add your notes repo to the routine; claude.ai handles checkout and
+  push. No `GITHUB_TOKEN` needed.
+- **Token:** set `GITHUB_TOKEN` + `NOTES_REPO_REMOTE`; the routine clones and pushes via
   `https://x-access-token:${GITHUB_TOKEN}@github.com/<you>/<notes-repo>.git`.
 
-Rule every routine follows: stop on any gate failure, and **never mark rows
-processed until the push is verified** (else the next run retries cleanly).
+The notes repo must exist on GitHub for the routine to push to it.
+
+## Rule every routine follows
+
+Stop on any gate or reviewer failure, and never mark rows processed until the push is
+verified, so the next run retries cleanly.

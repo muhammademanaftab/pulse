@@ -1,61 +1,90 @@
 ---
 name: setup
-description: First-time setup for Pulse capture. Use when the user says "set up pulse", "install pulse", "connect pulse", or asks to start capturing their Claude Code sessions. Drives the whole setup; the user only does the Convex browser login.
+description: First-time setup for Pulse. Use when the user says "set up pulse", "install pulse", "connect pulse", or asks to start capturing their Claude Code sessions. Drives the whole setup; the user only does the Convex browser login and the claude.ai routine UI.
 ---
 
 # Pulse setup (agent-driven)
 
-Get the user from a fresh clone to live capture. You do the work and explain each
-step; the user only logs in to Convex in their browser once. The safe, mechanical
-parts (writing credentials, editing `~/.claude/settings.json`, verifying) are done
-by `skills/setup/install.py`, so you never hand-edit the user's settings. Run everything
-from the repo root.
+Take the user from a fresh clone to: capture live, daily notes configured, a first
+note produced, and (optionally) a nightly routine. You run the mechanical work via
+`skills/setup/install.py`; never hand-edit the user's `settings.json` or `config.yaml`.
+Run everything from the repo root. Do the phases in order.
 
-## Steps
+## Phase 1: Capture
 
-1. **Say what will happen.** One sentence: "I'll deploy your own Convex backend, wire
-   the capture hook, and confirm it works. You'll just log in to Convex once."
-
-2. **Run the setup script:**
+1. Say what will happen in one sentence, then run:
 
    ```bash
    python3 skills/setup/install.py
    ```
 
-   It is re-runnable and reports what it did. Read its output and act on it:
+2. If it prints the Convex login commands (no deployment yet), have the user run them
+   in their terminal (the `! ` prefix runs in this session), then re-run the script:
 
-   - **If it prints the Convex login commands** (the deployment does not exist yet),
-     the user must run them. Show them clearly and ask the user to run them in their
-     own terminal (the `! ` prefix runs a command in this session):
+   ```
+   ! cd convex-backend && npx convex login
+   ! cd convex-backend && npx convex dev --once --dev-deployment cloud
+   ```
 
-     ```
-     ! cd convex-backend && npx convex login
-     ! cd convex-backend && npx convex dev --once --dev-deployment cloud
-     ```
+   The second asks them to pick a team and name the project (suggest `pulse`).
 
-     The second one asks them to pick a team and name the project (suggest `pulse`).
-     Wait for them to confirm both finished, then run `python3 skills/setup/install.py`
-     again to finish.
+3. When it finishes (creds written, hook installed, probe verified), tell them: capture
+   is live, every Claude Code turn now records to their Convex, silent, logs at
+   `~/.pulse/capture.log`.
 
-   - **If it finishes** (writes credentials, installs the hook, verifies a probe),
-     setup is done. Move on.
+## Phase 2: Daily notes
 
-3. **Confirm and explain.** Tell the user plainly:
-   - Capture is live: every Claude Code turn now records to their own Convex.
-   - It is silent and never interrupts a session; logs are at `~/.pulse/capture.log`.
+4. Ask where notes should live: offer to create `~/pulse-notes`, or take a path they
+   give. Then run (add `--create` when making a new repo):
 
-4. **Offer the next step (optional).** Daily notes need a notes git repo. Ask if they
-   want to set that up now: copy `config.example.yaml` to `~/.pulse/config.yaml` and
-   set `notes_repo` to their notes repo path. Then the digest (see `routines/`) can
-   write daily notes. If they are not ready, leave it; capture works without it.
+   ```bash
+   python3 skills/setup/install.py notes --repo <path> --create
+   ```
+
+   This git-inits the repo, auto-detects their timezone, and writes
+   `~/.pulse/config.yaml`. Confirm the detected timezone with them; pass
+   `--timezone <IANA>` if wrong.
+
+5. Produce a first note as a preview: follow `skills/digest/SKILL.md` for the most
+   recent day with data, but stop after the gates. **Do NOT push or mark rows
+   processed** (the routine owns that). Show the user the note path.
+
+   If `digest.py fetch` returns `event_count` 0 (brand-new user, nothing captured
+   yet), tell them plainly: notes appear once they've used Claude Code, and they can
+   run the digest later. Do not treat this as an error.
+
+## Phase 3: Nightly routine (optional)
+
+6. Ask if they want notes built automatically every night (works with their machine
+   off). If yes, walk them through creating the claude.ai routine, telling them the
+   exact value for each field. Use `routines/README.md` as the source; the fields:
+
+   - **Name:** `Pulse Daily Digest`
+   - **Instructions:** paste the fenced block from `routines/digest.md`
+   - **Model:** latest Sonnet or Opus
+   - **Repos:** attach two: this `pulse` repo and their notes repo
+   - **Trigger:** daily, late evening in their timezone
+   - **Environment** `pulse`: **Network access = Full**, and these `.env` variables
+     (read `CONVEX_URL`/`CONVEX_TOKEN` from their `~/.pulse/.env` and give them the
+     exact lines): `CONVEX_URL`, `CONVEX_TOKEN`, `PULSE_TZ`, `NOTES_REPO`,
+     `NOTES_REPO_REMOTE`, and `GITHUB_TOKEN` (or attach the notes repo instead). Setup
+     script: none.
+   - **Permissions:** allow git push to the notes repo
+
+7. State the caveat: the environment's variables include secrets (`CONVEX_TOKEN`,
+   `GITHUB_TOKEN`) and claude.ai shows them to anyone who can use that environment, so
+   keep it private and never shared.
+
+8. The notes repo must exist on GitHub for the routine to push. If theirs is local
+   only, walk them through creating the GitHub repo and adding it as the remote.
 
 ## Rules
 
-- Never hand-edit `~/.claude/settings.json` yourself. `install.py` does that safely
-  (it backs up and merges without touching other settings). Your job is to run it and
-  guide the user.
-- The Convex browser login is the only step the user must do themselves. Everything
-  else is yours to run.
+- Never hand-edit `~/.claude/settings.json` or `~/.pulse/config.yaml`; `install.py`
+  writes both safely (backup, merge, idempotent).
+- The only steps the user does themselves: the Convex login (Phase 1) and the
+  claude.ai routine UI (Phase 3). Everything else is yours to run.
+- The Phase 2 first note is preview-only: never push or mark rows processed during setup.
 - If `install.py` stops with an error, relay its exact message; do not guess around it.
 
 $ARGUMENTS

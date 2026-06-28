@@ -45,25 +45,28 @@ cd pulse
 ```
 
 Then in Claude Code: **"set up pulse"**. Claude follows the setup runbook
-([skills/setup/SKILL.md](skills/setup/SKILL.md)): it deploys your Convex backend,
-stores your credentials, wires the capture hook, and verifies it. The only thing you
-do yourself is log in to Convex in your browser once, when Claude asks.
+([skills/setup/SKILL.md](skills/setup/SKILL.md)) and walks you through three phases:
 
-Prefer to run it yourself? The same work is in one script:
+1. **Capture:** deploys your Convex backend, stores your credentials, wires the hook.
+   You log in to Convex in your browser once, when Claude asks.
+2. **Daily notes:** Claude asks where your notes should live (creates `~/pulse-notes`
+   or uses a path you give), writes the config for you, and shows you a first note.
+3. **Nightly routine (optional):** Claude walks you through the claude.ai routine so
+   notes build automatically every night.
+
+Prefer to run the mechanical parts yourself:
 
 ```
-python3 skills/setup/install.py
+python3 skills/setup/install.py                          # capture
+python3 skills/setup/install.py notes --repo ~/pulse-notes --create   # notes config
 ```
 
-It is re-runnable: the first run tells you to run `npx convex login` and
-`npx convex dev --once --dev-deployment cloud`, then you run it again to finish.
-
-After setup, capture is on. Every session is recorded from then on.
+After setup, capture is on and every session is recorded.
 
 ## Daily notes
 
-The digest runs as a nightly cloud routine (works with your machine off). See
-[routines/](routines/) for a paste-ready Claude routine and its setup.
+The digest runs as a nightly claude.ai routine (works with your machine off). See
+[routines/](routines/) for the routine and the exact fields to fill in.
 
 Notes are written to your notes repo, not into this one:
 

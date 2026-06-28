@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
-"""Pulse setup. Run once after cloning the repo: `python3 skills/setup/install.py`.
+"""Pulse setup.
 
-Wires capture the way it actually runs: a Stop hook in ~/.claude/settings.json
-that runs a copy of capture.py and POSTs each Claude Code turn to your own Convex
-deployment.
-
-Re-runnable and safe: it reads and backs up settings.json and merges our hook
-without touching anything else, reuses an existing token, and never duplicates the
-hook. The one step it cannot do for you is the Convex browser login; when that is
-needed it prints the two commands to run, then you re-run this script to finish.
-
-Stdlib only.
+  python3 skills/setup/install.py                         wire capture (default)
+  python3 skills/setup/install.py notes --repo <path> --create   configure daily notes
 """
+import argparse
 import json
 import os
 import re
@@ -21,11 +14,13 @@ import subprocess
 import sys
 from urllib.request import Request, urlopen
 
-HERE = os.path.dirname(os.path.abspath(__file__))            # skills/setup
-REPO = os.path.dirname(os.path.dirname(HERE))                # repo root
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(HERE))
 BACKEND = os.path.join(REPO, "convex-backend")
 PULSE_HOME = os.path.expanduser("~/.pulse")
 ENV_FILE = os.path.join(PULSE_HOME, ".env")
+CONFIG_FILE = os.path.join(PULSE_HOME, "config.yaml")
+CONFIG_EXAMPLE = os.path.join(REPO, "config.example.yaml")
 CLAUDE_DIR = os.path.expanduser("~/.claude")
 HOOKS_DIR = os.path.join(CLAUDE_DIR, "hooks")
 HOOK_DEST = os.path.join(HOOKS_DIR, "pulse-capture.py")
@@ -46,8 +41,6 @@ def run(args: list[str], cwd: str | None = None) -> tuple[int, str, str]:
     p = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
     return p.returncode, p.stdout.strip(), p.stderr.strip()
 
-
-# --- steps ------------------------------------------------------------------
 
 def check_prereqs() -> None:
     print("1. Checking prerequisites...")
@@ -73,12 +66,11 @@ def deployment_ready() -> bool:
 
 def print_login_instructions() -> None:
     print(
-        "\n3. Convex needs a one-time login (this is the only manual step).\n"
-        "   Run these two commands in your terminal, then re-run this script:\n\n"
+        "\n3. Convex needs a one-time login (the only manual step).\n"
+        "   Run these in your terminal, then re-run this script:\n\n"
         f"     cd {BACKEND}\n"
         "     npx convex login\n"
-        "     npx convex dev --once --dev-deployment cloud\n\n"
-        "   The second command will ask you to pick a team and name the project.\n")
+        "     npx convex dev --once --dev-deployment cloud\n")
 
 
 def resolve_token() -> str:
@@ -98,7 +90,6 @@ def resolve_site_url() -> str:
         url = out.strip().strip('"')
         if url.endswith(".convex.site"):
             return url
-    # Fallback: swap .cloud -> .site on the URL recorded in .env.local
     envlocal = os.path.join(BACKEND, ".env.local")
     if os.path.isfile(envlocal):
         for line in open(envlocal):
@@ -132,7 +123,7 @@ def install_hook() -> None:
             settings = json.load(open(SETTINGS))
         except Exception:
             die(f"{SETTINGS} is not valid JSON; fix or move it, then re-run.")
-        shutil.copy(SETTINGS, SETTINGS + ".bak")  # back up before touching
+        shutil.copy(SETTINGS, SETTINGS + ".bak")
 
     hooks = settings.setdefault("hooks", {})
     stop = hooks.setdefault("Stop", [])
@@ -170,8 +161,8 @@ def verify(url: str, token: str) -> None:
         die(f"probe POST failed: {e}\n  Check CONVEX_URL is the .site URL and the token matches.")
 
 
-def main() -> int:
-    print("Pulse setup\n")
+def cmd_capture() -> int:
+    print("Pulse capture setup\n")
     check_prereqs()
     ensure_backend_deps()
     if not deployment_ready():
@@ -185,6 +176,72 @@ def main() -> int:
     print("\nDone. Capture is live: every Claude Code turn now records to your Convex.\n"
           "Logs: ~/.pulse/capture.log\n")
     return 0
+
+
+def detect_timezone() -> str:
+    try:
+        path = os.path.realpath("/etc/localtime")
+        if "zoneinfo/" in path:
+            return path.split("zoneinfo/", 1)[1]
+    except Exception:
+        pass
+    return "UTC"
+
+
+def cmd_notes(args) -> int:
+    if not have("git"):
+        die("'git' not found. Install it and re-run.")
+    repo = os.path.abspath(os.path.expanduser(args.repo))
+    if args.create or not os.path.isdir(repo):
+        os.makedirs(repo, exist_ok=True)
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        code, _, err = run(["git", "init", repo])
+        if code != 0:
+            die(f"git init failed at {repo}:\n{err}")
+        run(["git", "-C", repo, "symbolic-ref", "HEAD", "refs/heads/main"])
+        print(f"   initialized notes repo at {repo}")
+    else:
+        print(f"   using existing notes repo at {repo}")
+
+    tz = args.timezone or detect_timezone()
+    if not os.path.isfile(CONFIG_EXAMPLE):
+        die(f"missing {CONFIG_EXAMPLE}")
+    out = []
+    for line in open(CONFIG_EXAMPLE).read().splitlines():
+        if line.startswith("timezone:"):
+            out.append(f"timezone: {tz}")
+        elif line.startswith("notes_repo:"):
+            out.append(f"notes_repo: {repo}")
+        else:
+            out.append(line)
+    content = "\n".join(out) + "\n"
+
+    os.makedirs(PULSE_HOME, exist_ok=True)
+    if os.path.isfile(CONFIG_FILE):
+        if open(CONFIG_FILE).read() == content:
+            print(f"   config already current at {CONFIG_FILE}")
+            print(repo)
+            return 0
+        shutil.copy(CONFIG_FILE, CONFIG_FILE + ".bak")
+    with open(CONFIG_FILE, "w") as f:
+        f.write(content)
+    print(f"   wrote {CONFIG_FILE} (notes_repo={repo}, timezone={tz})")
+    print(repo)
+    return 0
+
+
+def main() -> int:
+    p = argparse.ArgumentParser()
+    sub = p.add_subparsers(dest="cmd")
+    sub.add_parser("capture")
+    n = sub.add_parser("notes")
+    n.add_argument("--repo", required=True)
+    n.add_argument("--create", action="store_true")
+    n.add_argument("--timezone", default=None)
+    args = p.parse_args()
+    if args.cmd == "notes":
+        return cmd_notes(args)
+    return cmd_capture()
 
 
 if __name__ == "__main__":
