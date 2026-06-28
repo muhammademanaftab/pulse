@@ -1,0 +1,19 @@
+# Captured data — never committed, never published
+sessions/
+memory/
+*.jsonl
+
+# Personal configs (the templates/ versions are the public ones)
+*.local.yaml
+*.local.md
+.env
+key.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS / editor
+.DS_Store
+.obsidian/

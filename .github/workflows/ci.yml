@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile all scripts
+        run: python3 -m py_compile skills/setup/*.py skills/digest/*.py
+
+      - name: Link-rendering rule (existence-based)
+        run: |
+          set -e
+          mkdir -p /tmp/v/Pulse/Projects
+          # No project note yet -> bold
+          out=$(printf -- '- x' | python3 skills/digest/digest.py render-block --project Demo --projects-dir /tmp/v/Pulse/Projects)
+          echo "$out" | grep -q '### \*\*Demo\*\*'
+          # Create the project note -> wikilink
+          echo '# Demo' > /tmp/v/Pulse/Projects/Demo.md
+          out=$(printf -- '- x' | python3 skills/digest/digest.py render-block --project Demo --projects-dir /tmp/v/Pulse/Projects)
+          echo "$out" | grep -q '### \[\[Demo\]\]'
+
+      - name: Month-hub + index wiring is idempotent and graph is whole
+        run: |
+          set -e
+          mkdir -p /tmp/g/Pulse/Daily/2026-06
+          printf -- '---\ndate: "2026-06-15"\ntags: [pulse, daily]\n---\n\n# Mon, June 15, 2026\n\n## Summary\n\nDid work.\n\n## Work log\n\n### **demo**\n\n- Built `x.py`\n' > /tmp/g/Pulse/Daily/2026-06/2026-06-15.md
+          python3 skills/digest/digest.py month-links --vault /tmp/g --subfolder "Pulse/Daily" --date 2026-06-15 --hub-prefix Pulse --index "Pulse Index.md"
+          python3 skills/digest/digest.py month-links --vault /tmp/g --subfolder "Pulse/Daily" --date 2026-06-15 --hub-prefix Pulse --index "Pulse Index.md"
+          python3 skills/digest/digest.py lint /tmp/g/Pulse/Daily/2026-06/2026-06-15.md
+          python3 skills/digest/digest.py check-links --vault /tmp/g
+
+      - name: Gates reject a bad note (em dash, dead link)
+        run: |
+          set -e
+          printf -- '---\nx: 1\n---\n\n# H\n\n## Summary\n\nThis is very good — yeah.\n\n## Work log\n\n### x\n' > /tmp/bad.md
+          if python3 skills/digest/digest.py lint /tmp/bad.md; then echo "lint should have failed"; exit 1; fi
+          mkdir -p /tmp/dead/Pulse
+          printf -- '# A\n[[Missing]]\n' > /tmp/dead/Pulse/a.md
+          if python3 skills/digest/digest.py check-links --vault /tmp/dead; then echo "check_links should have failed"; exit 1; fi

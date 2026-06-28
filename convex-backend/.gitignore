@@ -1,0 +1,9 @@
+# Convex writes the deployment binding here on first run. Never commit it:
+# it ties this checkout to one person's deployment.
+.env.local
+
+# npm
+node_modules/
+
+# Convex generates these types on every `convex dev` / `convex deploy`.
+convex/_generated/

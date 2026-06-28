@@ -1,0 +1,6 @@
+timezone: UTC
+notes_repo: ~/notes
+vault_subfolder: Pulse/Daily
+projects_subfolder: Pulse/Projects
+hub_prefix: Pulse
+index_name: Pulse Index.md
