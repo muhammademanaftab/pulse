@@ -13,6 +13,42 @@ in Obsidian. You stop guessing what you got done last Tuesday.
 Your data goes to your own [Convex](https://convex.dev) deployment (free tier) and
 your own notes repo. There is no Pulse server and no account to create with us.
 
+Each day becomes a note like this:
+
+```markdown
+---
+date: "2026-06-02"
+tags: [pulse, daily]
+source: claude-code
+---
+
+# Tuesday, June 2, 2026
+
+## Summary
+
+Worked across 2 projects.
+
+## Work log
+
+### [[CLI Tool]]
+
+- Cut cold-start of the local stack from 30s to 8s.
+- Added `pulse deploy` with a dry-run flag and a diff preview.
+
+### [[Notifications]]
+
+- Moved delivery onto Kafka so retries survive a worker crash.
+- Added per-channel opt-out honored across email and push.
+
+## Decisions & signals
+
+- Chose Redis over in-memory for rate limits so it survives pod restarts. See [[Decisions]].
+
+## Next
+
+- Follow up on open threads.
+```
+
 ## How it works
 
 ```
