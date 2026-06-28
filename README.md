@@ -6,9 +6,9 @@ A memory layer for your work with Claude Code. It quietly remembers every sessio
 
 *Every session becomes a linked note. Over months it builds a connected map of what you have built, shown here as an Obsidian graph.*
 
-You finish a week of building and most of it is already gone. What did I ship on Tuesday? Why did I switch that service off Postgres? It is all buried in old terminal scrollback you will never read again.
+You finish a week of building and most of it is already gone. What did I ship on Tuesday? Why did I redo that whole feature? It is buried in old chat history you will never scroll through again.
 
-Pulse fixes that. It records every Claude Code session to a database you own, and each night it writes a plain-markdown note of what you actually did, grouped by project, ready to open in Obsidian. The notes read like a person wrote them, not an AI, so they still make sense to you months later. Your work stops disappearing.
+Pulse fixes that. It records every Claude Code session to a database you own, and each night it writes up your day, grouped by project, ready to open in Obsidian. It writes the way you would write a journal, plain and clear, so it still makes sense to you months later. Your work stops disappearing.
 
 Your data lives in your own [Convex](https://convex.dev) deployment (free tier) and your own notes repo. There is no Pulse server, and no account to create with us.
 
@@ -52,16 +52,16 @@ Made the app open much faster, fixed a bug that was dropping some notifications,
 
 ## More than a journal
 
-The daily note is just the first thing Pulse makes. Underneath it is the real point: a structured, growing record of your work that other things can read from.
+Pulse is built from small skills. The daily note is the first one: it reads your day and writes it up like you would.
 
-Because it is plain markdown you own, you can build on top of it:
+Every other skill just reads those notes. Once your days are written down, you can add more:
 
-- A **weekly recap** of everything you shipped.
-- A **devlog** or a **brag document** you can hand to your manager or paste into a review.
-- Draft **LinkedIn and X posts** about what you worked on this week, in your own words.
-- An agent that knows the **skills you have actually used** across projects, and can act on that: draft your posts, or apply to jobs on your behalf.
+- A **weekly recap** of what you got done.
+- A **devlog** or a **brag document** for your manager or a review.
+- **LinkedIn and X posts** about your week, in your own words.
+- A helper that **applies to jobs for you**, using the work you have actually done.
 
-Right now, Pulse writes your daily notes. The weekly recap, the posts, and the agents are next. All of it is possible because your history is plain notes you own, not locked inside an app.
+The daily note works today. The rest are more of the same: small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
 ## How it works
 
