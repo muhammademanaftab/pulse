@@ -61,22 +61,21 @@ Because it is plain markdown you own, you can build on top of it:
 - Draft **LinkedIn and X posts** about what you worked on this week, in your own words.
 - An agent that knows the **skills you have actually used** across projects, and can act on that: draft your posts, or apply to jobs on your behalf.
 
-Today Pulse writes the daily notes. The rest is where it is headed, and it is all buildable, because the foundation is just your own readable history.
+Right now, Pulse writes your daily notes. The weekly recap, the posts, and the agents are next. All of it is possible because your history is plain notes you own, not locked inside an app.
 
 ## How it works
 
 ```
-Claude Code session  ->  capture (a Stop hook)  ->  your Convex deployment
-                                                          |
-                            nightly digest (cloud routine)|
-                                                          v
-                                     daily note  ->  your notes git repo  ->  Obsidian
+Your Claude Code work  ->  Pulse captures it  ->  your own database
+                                                        |
+                                  every night           |
+                                                        v
+              a clear daily note  ->  your notes folder  ->  open in Obsidian
 ```
 
-- **Capture** is a small `Stop` hook. After every turn it saves your prompt and the response. It is silent and never interrupts you.
-- **Digest** reads a day of sessions, groups them by project, and writes one note. It links each note into a monthly index so the vault stays connected, runs a humanizer pass so the writing sounds human, and has a reviewer check the note against the raw sessions before saving.
-
-There is no plugin to install. Capture is a hook in your Claude Code settings. The digest is a scheduled cloud routine that runs the code in this repo.
+- **It captures** every Claude Code session while you work. You do not lift a finger.
+- **Every night it writes one clear note** for the day, grouped by project, in plain English so it still makes sense months later.
+- **Your notes stay yours.** They are plain files in your own folder, easy to read, search, and reuse.
 
 ## Requirements
 
