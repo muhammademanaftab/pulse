@@ -2,9 +2,9 @@
 
 A memory layer for your work with Claude Code. It quietly remembers every session and turns it into a knowledge base you own.
 
-![Six months of Claude Code sessions, captured by Pulse and turned into a linked vault of daily and project notes](assets/graph.png)
+![An example Pulse vault shown as an Obsidian graph: daily notes linked to the projects they touched](assets/graph.png)
 
-*Every session becomes a linked note. Over months it builds a connected map of what you have built, shown here as an Obsidian graph.*
+*An example Pulse vault as an Obsidian graph (sample data). Every session becomes a linked note, and over time it builds a connected map of what you have built.*
 
 You finish a week of building and most of it is already gone. What did I ship on Tuesday? Why did I redo that whole feature? It is buried in old chat history you will never scroll through again.
 
