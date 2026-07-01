@@ -15,7 +15,7 @@ jobs:
           python-version: "3.12"
 
       - name: Compile all scripts
-        run: python3 -m py_compile skills/setup/*.py skills/digest/*.py
+        run: python3 -m py_compile skills/setup/*.py skills/digest/*.py skills/synth/*.py
 
       - name: Link-rendering rule (existence-based)
         run: |
@@ -47,3 +47,38 @@ jobs:
           mkdir -p /tmp/dead/Pulse
           printf -- '# A\n[[Missing]]\n' > /tmp/dead/Pulse/a.md
           if python3 skills/digest/digest.py check-links --vault /tmp/dead; then echo "check_links should have failed"; exit 1; fi
+
+      - name: Synth collects a week and buckets by project (existence-based linking)
+        run: |
+          set -e
+          export NOTES_REPO=/tmp/n
+          mkdir -p /tmp/n/Pulse/Daily/2026-06 /tmp/n/Pulse/Projects
+          printf -- '---\ndate: "2026-06-08"\ntags: [pulse, daily]\n---\n\n# Mon, June 8, 2026\n\n## Summary\n\nShipped the faster home page.\n\n## Work log\n\n### [[Web App]]\n\n- Cut home page load to 1s\n\n### **Notifications**\n\n- Fixed dropped alerts\n' > /tmp/n/Pulse/Daily/2026-06/2026-06-08.md
+          printf -- '---\ndate: "2026-06-10"\ntags: [pulse, daily]\n---\n\n# Wed, June 10, 2026\n\n## Summary\n\nMore on the web app.\n\n## Work log\n\n### **Web App**\n\n- Added preview button\n' > /tmp/n/Pulse/Daily/2026-06/2026-06-10.md
+          printf -- '# Web App\n' > "/tmp/n/Pulse/Projects/Web App.md"
+          python3 skills/synth/synth.py collect --week-end 2026-06-14 > /tmp/week.json
+          python3 -c "import json;d=json.load(open('/tmp/week.json'));assert d['note_count']==2,d;assert d['week_start']=='2026-06-08',d;assert d['weekly_hub_prefix']=='Pulse Weekly',d"
+          python3 skills/synth/synth.py buckets /tmp/week.json > /tmp/buckets.json
+          python3 -c "import json;b=json.load(open('/tmp/buckets.json'))['buckets'];assert b['Web App']['rendered']=='[[Web App]]',b;assert b['Web App']['days']==['2026-06-08','2026-06-10'],b;assert b['Notifications']['rendered']=='**Notifications**',b"
+
+      - name: Synth week-links is idempotent and the graph stays whole
+        run: |
+          set -e
+          mkdir -p /tmp/w/Pulse/Weekly/2026-06 /tmp/w/Pulse/Daily/2026-06
+          printf -- '---\ndate: "2026-06-08"\ntags: [pulse, daily]\n---\n\n# Mon, June 8, 2026\n' > /tmp/w/Pulse/Daily/2026-06/2026-06-08.md
+          printf -- '---\ntype: weekly\nweek_start: "2026-06-08"\nweek_end: "2026-06-14"\ntags: [pulse, weekly]\n---\n\n# Week of Jun 8 to Jun 14, 2026\n\nGood week.\n\n## What you worked on\n\n- **Web App** (2 days): shipped a faster home page\n\n## Sources\n\nDaily notes read: [[Pulse/Daily/2026-06/2026-06-08|Jun 8]]\n' > /tmp/w/Pulse/Weekly/2026-06/2026-06-14.md
+          python3 skills/synth/synth.py week-links --vault /tmp/w --subfolder "Pulse/Weekly" --date 2026-06-14 --hub-prefix "Pulse Weekly" --index "Pulse Weekly Index.md"
+          python3 skills/synth/synth.py week-links --vault /tmp/w --subfolder "Pulse/Weekly" --date 2026-06-14 --hub-prefix "Pulse Weekly" --index "Pulse Weekly Index.md"
+          python3 skills/synth/synth.py lint /tmp/w/Pulse/Weekly/2026-06/2026-06-14.md
+          python3 skills/digest/digest.py check-links --vault /tmp/w --subfolder Pulse
+
+      - name: Synth gates reject a bad note and a dropped project
+        run: |
+          set -e
+          printf -- '---\nx: 1\n---\n\n# Week of Jun 8 to Jun 14, 2026\n\nGood — yeah.\n\n## What you worked on\n\n- **Web App** (2 days): x\n\n## Sources\n\nx\n' > /tmp/badweek.md
+          if python3 skills/synth/synth.py lint /tmp/badweek.md; then echo "lint should have failed (em dash)"; exit 1; fi
+          printf '%s' '{"buckets":{"Web App":{},"Notifications":{}}}' > /tmp/bkts.json
+          printf -- '---\nx: 1\n---\n\n# Week\n\n## What you worked on\n\n- Web App\n\n## Sources\n\nx\n' > /tmp/wk.md
+          if python3 skills/synth/synth.py coverage --buckets /tmp/bkts.json --weekly-note /tmp/wk.md; then echo "coverage should have failed (dropped Notifications)"; exit 1; fi
+          printf -- '---\nx: 1\n---\n\n# Week\n\n## What you worked on\n\n- Web App\n\n## What I skipped (and why)\n\n- Notifications: one quiet mention\n\n## Sources\n\nx\n' > /tmp/wk2.md
+          python3 skills/synth/synth.py coverage --buckets /tmp/bkts.json --weekly-note /tmp/wk2.md

@@ -45,16 +45,16 @@ its note is confirmed pushed.
 ## Status
 
 - **Done:** capture (milestone 1); digest + `routines/` + reviewer subagent
-  (milestone 2). Verified against mock endpoints and locally; CI compiles the scripts
-  and exercises the linking rule and gates.
-- **Not built yet:** project-note creation (the synthesizer's job; projects render
-  bold until then), the weekly synthesizer + semantic memory, the safety/redaction
-  firewall, output heads (devlog/standup/bragdoc), a notes-repo bootstrap for new
-  users, and LICENSE + README (removed to keep the pre-release repo minimal; re-add
-  before going public).
+  (milestone 2); weekly synth (milestone 3): `skills/synth/` reads the week's daily
+  notes and writes one weekly note (`Pulse/Weekly/`), with its own hub + index,
+  gates, and reviewer subagent. Public repo is live. CI compiles the scripts and
+  exercises the linking rule, gates, and the synth parser.
+- **Not built yet:** project-note creation and skills tracking (synth v1 is weekly
+  note only; projects still render bold until a project note exists), semantic
+  memory, the safety/redaction firewall, and output heads (devlog/standup/bragdoc).
 - **Biggest unknown:** claude.ai-sandbox git-push auth, proven on the first real
   routine run.
-- Working branch: `feat/convex-onboarding` (not pushed).
+- Working branch: `develop`.
 
 ## HARD security rules (the repo is public-bound)
 
