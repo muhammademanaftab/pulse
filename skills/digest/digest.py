@@ -215,6 +215,10 @@ def cmd_fetch(args) -> int:
         print(json.dumps({"error": "no CONVEX_URL/CONVEX_TOKEN; run skills/setup/install.py",
                           "date": date}), file=sys.stderr)
         return 2
+    if not url.startswith("https://"):
+        print(json.dumps({"error": "CONVEX_URL must start with https:// (refusing to send "
+                          "the token over cleartext)", "date": date}), file=sys.stderr)
+        return 2
 
     start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=tz)
     start_ms, end_ms = int(start.timestamp() * 1000), int((start + timedelta(days=1)).timestamp() * 1000)

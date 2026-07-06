@@ -17,6 +17,7 @@ file is missing (capture not set up yet), it no-ops cleanly.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -24,6 +25,8 @@ from urllib.request import Request, urlopen
 
 ENV_FILE = os.path.expanduser("~/.pulse/.env")
 LOG_FILE = os.path.expanduser("~/.pulse/capture.log")
+MAX_LOG_BYTES = 5 * 1024 * 1024
+MAX_FIELD_CHARS = 100_000  # Convex caps documents at 1MB; stay well under it
 
 FILTERED_TOOL_FIELDS = {"content", "old_string", "new_string"}
 AUTO_INJECTED_PREFIXES = (
@@ -36,12 +39,45 @@ AUTO_INJECTED_PREFIXES = (
     "[Image: source:",
 )
 
+# Best-effort secret scrubbing. Everything captured (prompts, responses,
+# thinking, tool inputs like Bash commands) passes through these before it
+# leaves the machine. Not a guarantee, but it catches the common shapes.
+REDACT_PATTERNS = (
+    ("private-key", re.compile(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S)),
+    ("aws-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
+    ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
+    ("api-key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    ("bearer", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.I)),
+    ("assignment", re.compile(
+        r"\b(?:api[_-]?key|token|secret|passwd|password)\b\s*[=:]\s*['\"]?[^\s'\"]{8,}", re.I)),
+    ("hex", re.compile(r"\b[a-f0-9]{40,}\b")),
+)
+
+
+def redact(text: str) -> str:
+    for kind, rx in REDACT_PATTERNS:
+        text = rx.sub(f"[REDACTED:{kind}]", text)
+    return text
+
+
+def truncate(text: str) -> str:
+    if len(text) > MAX_FIELD_CHARS:
+        return text[:MAX_FIELD_CHARS] + "\n[TRUNCATED]"
+    return text
+
 
 # --- credentials + logging --------------------------------------------------
 
 def log(msg: str) -> None:
     try:
         os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+        try:
+            if os.path.getsize(LOG_FILE) > MAX_LOG_BYTES:
+                os.replace(LOG_FILE, LOG_FILE + ".1")
+        except OSError:
+            pass
         with open(LOG_FILE, "a") as f:
             f.write(f"[{datetime.now(timezone.utc).isoformat()}] {msg}\n")
     except Exception:
@@ -68,6 +104,9 @@ def load_env() -> tuple[str | None, str | None]:
                     token = v
     except Exception as e:
         log(f"env read error: {e}")
+    if url and not url.startswith("https://"):
+        log(f"refusing non-https CONVEX_URL: {url}")
+        return None, None
     return url, token
 
 
@@ -253,8 +292,8 @@ def main() -> None:
     payload = {
         "username": username,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "message": prompt,
-        "response": response or "",
+        "message": truncate(redact(prompt)),
+        "response": truncate(redact(response or "")),
         "project": project,
         "project_path": cwd,
         "session_id": session_id,

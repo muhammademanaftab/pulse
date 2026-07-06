@@ -11,13 +11,26 @@ function unauthorized(): Response {
   });
 }
 
+// Constant-time comparison so response timing leaks nothing about the token.
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  let diff = ab.length ^ bb.length;
+  const len = Math.max(ab.length, bb.length);
+  for (let i = 0; i < len; i++) {
+    diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
+  }
+  return diff === 0;
+}
+
 function authorize(request: Request): boolean {
   const expected = process.env.INGEST_TOKEN;
   if (!expected) return false;
   const header = request.headers.get("Authorization") ?? "";
   const prefix = "Bearer ";
   if (!header.startsWith(prefix)) return false;
-  return header.slice(prefix.length) === expected;
+  return timingSafeEqual(header.slice(prefix.length), expected);
 }
 
 http.route({
@@ -40,6 +53,15 @@ http.route({
     if (!message) {
       return new Response(JSON.stringify({ error: "message required" }), {
         status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Convex caps documents at 1MB; fail loudly instead of at the insert.
+    const responseText = typeof body.response === "string" ? body.response : "";
+    if (message.length + responseText.length > 900_000) {
+      return new Response(JSON.stringify({ error: "payload too large" }), {
+        status: 413,
         headers: { "Content-Type": "application/json" },
       });
     }
@@ -157,6 +179,12 @@ http.route({
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
+    }
+    if (ids.length > 500) {
+      return new Response(
+        JSON.stringify({ error: "too many ids (max 500 per call)" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
     }
 
     const result = await ctx.runMutation(internal.prompts.markProcessed, { ids });

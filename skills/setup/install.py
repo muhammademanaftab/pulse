@@ -37,8 +37,11 @@ def have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
-def run(args: list[str], cwd: str | None = None) -> tuple[int, str, str]:
-    p = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+def run(args: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[int, str, str]:
+    try:
+        p = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 124, "", f"'{' '.join(args)}' timed out after {timeout}s"
     return p.returncode, p.stdout.strip(), p.stderr.strip()
 
 
@@ -54,7 +57,7 @@ def check_prereqs() -> None:
 
 def ensure_backend_deps() -> None:
     print("2. Installing Convex backend deps (convex-backend/)...")
-    code, _, err = run(["npm", "install"], cwd=BACKEND)
+    code, _, err = run(["npm", "install"], cwd=BACKEND, timeout=300)
     if code != 0:
         die(f"npm install failed in {BACKEND}:\n{err}")
     print("   ok")
@@ -103,6 +106,7 @@ def write_env(url: str, token: str) -> None:
     os.makedirs(PULSE_HOME, exist_ok=True)
     content = f"CONVEX_URL={url}\nCONVEX_TOKEN={token}\n"
     if os.path.isfile(ENV_FILE) and open(ENV_FILE).read() == content:
+        os.chmod(ENV_FILE, 0o600)  # re-tighten perms even when content is current
         print(f"4. Credentials already current at {ENV_FILE}")
         return
     with open(ENV_FILE, "w") as f:
