@@ -57,9 +57,9 @@ http.route({
       });
     }
 
-    // Convex caps documents at 1MB; fail loudly instead of at the insert.
+    // Convex caps documents at 1MB of bytes; fail loudly instead of at the insert.
     const responseText = typeof body.response === "string" ? body.response : "";
-    if (message.length + responseText.length > 900_000) {
+    if (new TextEncoder().encode(message + responseText).length > 900_000) {
       return new Response(JSON.stringify({ error: "payload too large" }), {
         status: 413,
         headers: { "Content-Type": "application/json" },

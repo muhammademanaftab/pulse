@@ -50,8 +50,10 @@ REDACT_PATTERNS = (
     ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
     ("api-key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
     ("bearer", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.I)),
+    # No leading \b: it would fail after an underscore, missing GITHUB_TOKEN=...
     ("assignment", re.compile(
-        r"\b(?:api[_-]?key|token|secret|passwd|password)\b\s*[=:]\s*['\"]?[^\s'\"]{8,}", re.I)),
+        r"(?:api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|token|passwd|password)"
+        r"\b\s*[=:]\s*['\"]?[^\s'\"]{8,}", re.I)),
     ("hex", re.compile(r"\b[a-f0-9]{40,}\b")),
 )
 
