@@ -71,6 +71,14 @@ def truncate(text: str) -> str:
     return text
 
 
+def make_event_id(session_id: str, prompt: str, response: str) -> str:
+    """Stable id for a turn so a double-fired Stop hook does not duplicate rows.
+    Built only from transcript content (never the clock), so two firings for the
+    same turn produce the same id and the backend dedups the second."""
+    return hashlib.sha256(
+        f"{session_id}:{prompt}:{response}".encode("utf-8")).hexdigest()[:32]
+
+
 # --- credentials + logging --------------------------------------------------
 
 def log(msg: str) -> None:
@@ -292,14 +300,10 @@ def main() -> None:
         return
 
     project, username = get_git_info(cwd)
-    timestamp = datetime.now(timezone.utc).isoformat()
-    # Stable id for the turn so a double-fired Stop hook does not duplicate rows.
-    event_id = hashlib.sha256(
-        f"{session_id}:{timestamp}:{prompt}".encode("utf-8")).hexdigest()[:32]
     payload = {
         "username": username,
-        "timestamp": timestamp,
-        "event_id": event_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_id": make_event_id(session_id, prompt, response or ""),
         "message": truncate(redact(prompt)),
         "response": truncate(redact(response or "")),
         "project": project,

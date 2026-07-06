@@ -355,8 +355,9 @@ def cmd_coverage(args) -> int:
         print(f"FAIL cannot read weekly note: {e}", file=sys.stderr)
         return 1
     ignore = set(args.ignore) if args.ignore else {"Misc"}
-    # Word-boundary match so a short label ("App") is not counted as present
-    # just because a longer one ("Web App") is named in the note.
+    # Word-boundary match so a label ("Auth") is not counted as present just
+    # because a longer word ("Authentication") contains it. A label that is a
+    # standalone word inside a longer phrase ("App" in "Web App") still counts.
     def named(label: str) -> bool:
         return re.search(rf"(?<!\w){re.escape(label)}(?!\w)", note) is not None
     missing = [label for label in buckets if label not in ignore and not named(label)]
