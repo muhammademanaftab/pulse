@@ -11,5 +11,5 @@ Convex, so `CONVEX_URL` and `CONVEX_TOKEN` are not required for this routine.
 Instructions (paste into the routine):
 
 ```
-If the pulse repo is not already checked out, clone it: git clone https://github.com/muhammademanaftab/pulse.git. Read pulse/skills/synth/SKILL.md and follow every step exactly, for the most recently completed week in $PULSE_TZ. Read the daily notes from the notes repo at $NOTES_REPO and write the weekly note back into it. Do not push if any gate or the reviewer subagent fails. After the push is verified, report the weekly note path and commit SHA.
+If the pulse repo is not already checked out, clone the pinned release: git clone --branch v0.1.0 --depth 1 https://github.com/muhammademanaftab/pulse.git. Read pulse/skills/synth/SKILL.md and follow every step exactly, for the most recently completed week in $PULSE_TZ. Read the daily notes from the notes repo at $NOTES_REPO and write the weekly note back into it. Do not push if any gate or the reviewer subagent fails. After the push is verified, report the weekly note path and commit SHA.
 ```
