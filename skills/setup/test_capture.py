@@ -163,6 +163,17 @@ def test_load_env_refuses_http():
         cap.ENV_FILE, cap.LOG_FILE = old_env, old_log
 
 
+def test_event_id_stable_across_refires():
+    # Same transcript content -> same id (dedup works); different turn -> different id.
+    a = cap.make_event_id("sess-1", "do the thing", "did the thing")
+    b = cap.make_event_id("sess-1", "do the thing", "did the thing")
+    c = cap.make_event_id("sess-1", "do the thing", "did it differently")
+    d = cap.make_event_id("sess-2", "do the thing", "did the thing")
+    assert a == b
+    assert len({a, c, d}) == 3
+    assert len(a) == 32 and all(ch in "0123456789abcdef" for ch in a)
+
+
 def test_clean_text_passthrough():
     clean = "Refactored the parser and added a test for project foo."
     assert cap.redact(clean) == clean

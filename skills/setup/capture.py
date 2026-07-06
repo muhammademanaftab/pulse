@@ -15,6 +15,7 @@ install. Never raises into the session: all work is wrapped, failures are logged
 to ~/.pulse/capture.log, and the hook always exits 0 with no stdout. If the env
 file is missing (capture not set up yet), it no-ops cleanly.
 """
+import hashlib
 import json
 import os
 import re
@@ -68,6 +69,14 @@ def truncate(text: str) -> str:
     if len(text) > MAX_FIELD_CHARS:
         return text[:MAX_FIELD_CHARS] + "\n[TRUNCATED]"
     return text
+
+
+def make_event_id(session_id: str, prompt: str, response: str) -> str:
+    """Stable id for a turn so a double-fired Stop hook does not duplicate rows.
+    Built only from transcript content (never the clock), so two firings for the
+    same turn produce the same id and the backend dedups the second."""
+    return hashlib.sha256(
+        f"{session_id}:{prompt}:{response}".encode("utf-8")).hexdigest()[:32]
 
 
 # --- credentials + logging --------------------------------------------------
@@ -294,6 +303,7 @@ def main() -> None:
     payload = {
         "username": username,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_id": make_event_id(session_id, prompt, response or ""),
         "message": truncate(redact(prompt)),
         "response": truncate(redact(response or "")),
         "project": project,

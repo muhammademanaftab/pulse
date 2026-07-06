@@ -4,6 +4,10 @@ import { internal } from "./_generated/api";
 
 const http = httpRouter();
 
+// Read endpoints use .collect(); cap the window so a wide range cannot blow
+// past Convex's read limits. The digest queries a single day.
+const MAX_RANGE_MS = 35 * 24 * 60 * 60 * 1000;
+
 function unauthorized(): Response {
   return new Response(JSON.stringify({ error: "unauthorized" }), {
     status: 401,
@@ -72,6 +76,12 @@ http.route({
 
     const id = await ctx.runMutation(internal.prompts.insert, {
       username: body.username ?? undefined,
+      eventId:
+        typeof body.event_id === "string"
+          ? body.event_id
+          : typeof body.eventId === "string"
+            ? body.eventId
+            : undefined,
       message,
       response: body.response ?? undefined,
       timestamp,
@@ -114,6 +124,12 @@ http.route({
         { status: 400, headers: { "Content-Type": "application/json" } },
       );
     }
+    if (endTs - startTs > MAX_RANGE_MS) {
+      return new Response(
+        JSON.stringify({ error: "range too large (max 35 days)" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
 
     const rows = await ctx.runQuery(internal.prompts.listInRange, {
       startTs,
@@ -140,6 +156,12 @@ http.route({
     if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
       return new Response(
         JSON.stringify({ error: "startTs and endTs (ms) required, endTs > startTs" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    if (endTs - startTs > MAX_RANGE_MS) {
+      return new Response(
+        JSON.stringify({ error: "range too large (max 35 days)" }),
         { status: 400, headers: { "Content-Type": "application/json" } },
       );
     }
