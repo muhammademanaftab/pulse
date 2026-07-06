@@ -1,0 +1,10 @@
+# Gitleaks config. Extends the default ruleset and allowlists the fake secrets
+# used as test fixtures (they are not real credentials).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures contain deliberately fake secrets"
+paths = [
+  '''skills/setup/test_capture\.py''',
+]
