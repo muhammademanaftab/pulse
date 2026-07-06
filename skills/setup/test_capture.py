@@ -134,7 +134,33 @@ def test_redaction_each_class():
         assert f"[REDACTED:{kind}]" in out, (kind, out)
         # The secret substring itself is gone.
         secret = sample.split()[-1]
-        assert secret not in out or kind in ("bearer", "assignment"), (kind, out)
+        assert secret not in out, (kind, out)
+
+
+def test_redaction_prefixed_env_vars():
+    # Real-world shapes: the keyword sits after an underscore prefix.
+    for sample in (
+        "export GITHUB_TOKEN=ghsecretvalue99",
+        "DB_PASSWORD=hunter2hunter2",
+        "STRIPE_SECRET_KEY: sk_live_replaced",
+        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIabc",
+    ):
+        out = cap.redact(sample)
+        assert "[REDACTED:assignment]" in out, (sample, out)
+
+
+def test_load_env_refuses_http():
+    env_dir = tempfile.mkdtemp()
+    env_path = os.path.join(env_dir, ".env")
+    with open(env_path, "w") as f:
+        f.write("CONVEX_URL=http://evil.example\nCONVEX_TOKEN=abc123abc123\n")
+    old_env, old_log = cap.ENV_FILE, cap.LOG_FILE
+    cap.ENV_FILE = env_path
+    cap.LOG_FILE = os.path.join(env_dir, "capture.log")
+    try:
+        assert cap.load_env() == (None, None)
+    finally:
+        cap.ENV_FILE, cap.LOG_FILE = old_env, old_log
 
 
 def test_clean_text_passthrough():
