@@ -6,10 +6,12 @@ skill on a cron with your machine off. One file here = one routine.
 | Routine | File | Cron |
 |---|---|---|
 | Digest | [digest.md](digest.md) | daily, late evening |
+| Synth | [synth.md](synth.md) | weekly, early in the week |
 
 ## Create the routine (every field)
 
-In claude.ai, create a routine and fill these:
+In claude.ai, create a routine and fill these. The values below are for the daily
+digest; the weekly synth uses the same shape with the changes noted underneath.
 
 | Field | Value |
 |---|---|
@@ -21,6 +23,13 @@ In claude.ai, create a routine and fill these:
 | **Environment** | the `pulse` cloud environment below |
 | **Permissions** | allow git push to the notes repo |
 | **Connectors** | GitHub connector if you attach the notes repo instead of using a token |
+
+For the **weekly synth**, create a second routine with the same fields but:
+`Name` = `Pulse Weekly Synth`, `Instructions` = the fenced block in
+[synth.md](synth.md), and `Trigger` = a weekly cron early in the week (e.g. Monday
+morning) so the finished week is complete. It reads your daily notes and does not
+touch Convex, so it can share the `pulse` environment (the Convex variables just go
+unused).
 
 ## The `pulse` cloud environment
 
@@ -51,7 +60,10 @@ share it.
 ## Pulse code (pick one)
 
 - **Clone at runtime (recommended):** attach only your notes repo; the routine's
-  instructions clone the public pulse repo each run, so it always has the latest code.
+  instructions clone the public pulse repo at a pinned release tag (currently
+  `v0.1.0`) each run, so an unattended push-capable agent only ever runs reviewed,
+  tagged code. When you cut a new release, bump the `--branch v0.1.0` tag in
+  `digest.md` and `synth.md`.
 - **Attach the pulse repo:** attach it alongside your notes repo to pin the version.
 
 ## Notes repo access (pick one)

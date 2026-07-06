@@ -10,7 +10,7 @@ You finish a week of building and most of it is already gone. What did I ship on
 
 Pulse fixes that. It records every Claude Code session to a database you own, and each night it writes up your day, grouped by project, ready to open in Obsidian. It writes the way you would write a journal, plain and clear, so it still makes sense to you months later. Your work stops disappearing.
 
-Your data lives in your own [Convex](https://convex.dev) deployment (free tier) and your own notes repo. There is no Pulse server, and no account to create with us.
+Your data lives in your own [Convex](https://convex.dev) deployment (free tier) and your own notes repo. There is no Pulse server, and no account to create with us. For what is captured and how it is protected, see [SECURITY.md](SECURITY.md).
 
 A day looks like this:
 
@@ -61,7 +61,7 @@ Every other skill just reads those notes. Once your days are written down, you c
 - **LinkedIn and X posts** about your week, in your own words.
 - A helper that **applies to jobs for you**, using the work you have actually done.
 
-The daily note works today. The rest are more of the same: small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
+The daily note and the weekly recap work today. The rest are more of the same: small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
 ## How it works
 
@@ -121,11 +121,17 @@ The digest writes into your notes repo, never into this one:
    |  |- 2026-06/
    |     |- Pulse 2026-06.md   (month hub)
    |     |- 2026-06-25.md      (a daily note)
+   |- Weekly/
+   |  |- Pulse Weekly Index.md
+   |  |- 2026-06/
+   |     |- Pulse Weekly 2026-06.md  (month hub)
+   |     |- 2026-06-28.md            (a weekly note, week ending Sunday)
    |- Projects/
 ```
 
-The nightly digest runs as a claude.ai routine and works with your machine off. See
-[routines/](routines/) for the routine and the exact fields to fill in.
+The nightly digest and the weekly synth both run as claude.ai routines and work with
+your machine off. See [routines/](routines/) for the routines and the exact fields to
+fill in.
 
 ## Configuration
 
@@ -140,7 +146,7 @@ Copy [`config.example.yaml`](config.example.yaml) to `~/.pulse/config.yaml` and 
 
 ## Status
 
-Pulse is early (0.x). Capture and the daily-note digest work today. The weekly recap, per-project notes, and the output agents (devlog, brag document, LinkedIn and X drafts, skill-aware agents) are planned, not built yet. Expect rough edges and breaking changes until 1.0.
+Pulse is early (0.x). Capture, the daily-note digest, and the weekly recap work today. Per-project notes and the output agents (devlog, brag document, LinkedIn and X drafts, skill-aware agents) are planned, not built yet. Expect rough edges and breaking changes until 1.0.
 
 ## License
 
