@@ -88,6 +88,10 @@ jobs:
           if python3 skills/synth/synth.py coverage --buckets /tmp/bkts.json --weekly-note /tmp/wk.md; then echo "coverage should have failed (dropped Notifications)"; exit 1; fi
           printf -- '---\nx: 1\n---\n\n# Week\n\n## What you worked on\n\n- Web App\n\n## What I skipped (and why)\n\n- Notifications: one quiet mention\n\n## Sources\n\nx\n' > /tmp/wk2.md
           python3 skills/synth/synth.py coverage --buckets /tmp/bkts.json --weekly-note /tmp/wk2.md
+          # A label must not be counted present as a substring inside a longer word.
+          printf '%s' '{"buckets":{"Auth":{},"Authentication":{}}}' > /tmp/bkts2.json
+          printf -- '---\nx: 1\n---\n\n# Week\n\n## What you worked on\n\n- **Authentication** (2 days): x\n\n## Sources\n\nx\n' > /tmp/wk3.md
+          if python3 skills/synth/synth.py coverage --buckets /tmp/bkts2.json --weekly-note /tmp/wk3.md; then echo "coverage should have failed (Auth is only a substring of Authentication)"; exit 1; fi
 
   secrets:
     runs-on: ubuntu-latest

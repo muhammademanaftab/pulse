@@ -15,6 +15,7 @@ install. Never raises into the session: all work is wrapped, failures are logged
 to ~/.pulse/capture.log, and the hook always exits 0 with no stdout. If the env
 file is missing (capture not set up yet), it no-ops cleanly.
 """
+import hashlib
 import json
 import os
 import re
@@ -291,9 +292,14 @@ def main() -> None:
         return
 
     project, username = get_git_info(cwd)
+    timestamp = datetime.now(timezone.utc).isoformat()
+    # Stable id for the turn so a double-fired Stop hook does not duplicate rows.
+    event_id = hashlib.sha256(
+        f"{session_id}:{timestamp}:{prompt}".encode("utf-8")).hexdigest()[:32]
     payload = {
         "username": username,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": timestamp,
+        "event_id": event_id,
         "message": truncate(redact(prompt)),
         "response": truncate(redact(response or "")),
         "project": project,

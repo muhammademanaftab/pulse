@@ -4,6 +4,7 @@ import { v } from "convex/values";
 export default defineSchema({
   prompts: defineTable({
     username: v.optional(v.string()),
+    eventId: v.optional(v.string()),
     message: v.string(),
     response: v.optional(v.string()),
     timestamp: v.string(),
@@ -16,5 +17,6 @@ export default defineSchema({
     processedAt: v.optional(v.number()),
   })
     .index("by_processed_ts", ["processed", "ts"])
-    .index("by_ts", ["ts"]),
+    .index("by_ts", ["ts"])
+    .index("by_event_id", ["eventId"]),
 });

@@ -4,6 +4,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 export const insert = internalMutation({
   args: {
     username: v.optional(v.string()),
+    eventId: v.optional(v.string()),
     message: v.string(),
     response: v.optional(v.string()),
     timestamp: v.string(),
@@ -14,6 +15,15 @@ export const insert = internalMutation({
     model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // A double-fired Stop hook can send the same turn twice; dedup on eventId.
+    const eventId = args.eventId;
+    if (eventId) {
+      const existing = await ctx.db
+        .query("prompts")
+        .withIndex("by_event_id", (q) => q.eq("eventId", eventId))
+        .first();
+      if (existing) return existing._id;
+    }
     const id = await ctx.db.insert("prompts", {
       ...args,
       processed: false,
