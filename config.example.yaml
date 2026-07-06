@@ -2,5 +2,6 @@ timezone: UTC
 notes_repo: ~/notes
 vault_subfolder: Pulse/Daily
 projects_subfolder: Pulse/Projects
+weekly_subfolder: Pulse/Weekly
 hub_prefix: Pulse
 index_name: Pulse Index.md
