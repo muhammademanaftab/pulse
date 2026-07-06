@@ -21,9 +21,11 @@ each turn it stores, in your Convex deployment:
   headers, `key=value` assignments for api-key / token / secret / password, and long
   hex runs. Matches become `[REDACTED:<kind>]`.
 - **This is best-effort, not a guarantee.** Novel or unusual secret formats can slip
-  through. Do not rely on it as your only control. If you paste a credential into a
-  session, rotate it. The redaction patterns live in `capture.py` (`REDACT_PATTERNS`)
-  and are easy to extend for your own formats.
+  through, and the patterns can occasionally redact harmless text that looks like a
+  secret (a long hex hash, a sentence like "password: rotate quarterly"). Do not rely
+  on it as your only control. If you paste a credential into a session, rotate it.
+  The redaction patterns live in `capture.py` (`REDACT_PATTERNS`) and are easy to
+  extend for your own formats.
 - **Transport.** Capture and the digest refuse a non-`https://` `CONVEX_URL`, so the
   ingest token and your content never cross the network in cleartext.
 - **Auth.** The backend accepts only requests bearing your `INGEST_TOKEN`
@@ -47,5 +49,5 @@ repo. Two guards apply:
 
 ## Reporting a vulnerability
 
-Open a GitHub security advisory on this repository, or a private issue. Please do
-not disclose publicly until a fix is available.
+Report privately via a GitHub security advisory on this repository (Security tab,
+"Report a vulnerability"). Please do not disclose publicly until a fix is available.
