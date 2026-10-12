@@ -10,6 +10,20 @@ that week. Not how the work was committed, and not a replay of every daily note.
 If a line only describes mechanics, drop it. If a line describes a capability, a
 decision, a real artifact, or a problem solved, keep it.
 
+## Reading the daily bullets
+
+Daily notes use typed bullets (see `skills/digest/references/note-structure.md`):
+
+- `Outcome:` is the best one-line summary of that day's work on a project.
+- `Decided:`, `Bug:`, `Rule:` and `Learned:` are the decisions, fixes and lessons.
+- `Open:` bullets were unfinished that day. `open_loops` in the buckets JSON
+  holds each item's latest state that week: never report it as still open if it
+  is `- [x]` there, or as shipped if it is `- [ ]` or `dropped` (abandoned, not
+  done).
+- `Refs:` is plumbing: links, not results.
+
+Older notes have plain bullets; read them as results.
+
 ## Do not write the plumbing
 
 These, on their own, are not worth a line in the weekly note:

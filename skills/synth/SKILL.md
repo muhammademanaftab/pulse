@@ -56,7 +56,8 @@ this SKILL file.
    ```
 
    The JSON has: `notes_scanned, daily_summaries:[{date,summary}],
-   buckets:{<Project>:{days:[...], bold, rendered, entries:[{date,bullets:[...]}]}}`.
+   buckets:{<Project>:{days:[...], bold, rendered, entries:[{date,bullets:[...]}]}},
+   open_loops:[<latest Open loops line per item this week>]`.
    The `rendered` field is the correctly linked label (`[[Project]]` if a project
    note exists, else `**Project**`). **Always use `rendered`; never hand-type a
    `[[wikilink]]`.**

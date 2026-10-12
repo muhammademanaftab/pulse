@@ -2,10 +2,12 @@
 """Pulse digester (L3): the one script the digest skill calls.
 
 Subcommands (run `digest.py <cmd> -h` for each):
-  fetch         pull a day's rows from Convex, bucket by project, print JSON
+  fetch         pull a whole day's rows from Convex, bucket by project, print JSON
   render-block  render one Work-log project heading + bullets (correct linking)
   month-links   wire the dated note into its month hub + folder index (idempotent)
-  lint          gate: required sections present, no em dash in body
+  open-loops    list the previous note's open items to carry into this one
+  carry-forward after a backfill, copy its new open items into the newest note
+  lint          gate: note layout, typed bullets, open loops carried, no em dash
   coverage      gate: every digest bucket has a block in the note
   check-links   gate: no dead [[links]] and no orphan notes
 
@@ -38,9 +40,28 @@ FENCE_RE = re.compile(r"```.*?```", re.S)
 CODE_RE = re.compile(r"`[^`\n]*`")
 SKIP_DIRS = {".git", ".obsidian", "node_modules", "__pycache__", ".trash"}
 
+SECTIONS = ["## Summary", "## Work log", "## Open loops"]
+BLOCK_HEADING_RE = re.compile(
+    r"^###\s+(?:\[\[(?P<link>[^\]#|]+)(?:[#|][^\]]*)?\]\]|\*\*(?P<bold>[^*]+)\*\*)\s*$")
+TASK_RE = re.compile(r"^- \[( |x|X)\] (.+)$")
+LOOP_TAG_RE = re.compile(
+    r"\s*\((?P<project>(?:[^()]|\([^()]*\))*?),\s*since (?P<since>[A-Z][a-z]{2} \d{1,2})[^()]*\)\s*$")
+MONTH_DIR_RE = re.compile(r"^\d{4}-\d{2}$")
+PREFIX_RE = re.compile(r"^- (\*\*)?(outcome|decided|bug|rule|learned|open|refs)(\*\*)?:", re.I)
+CLOSED_RE = re.compile(r",\s*(?:done [A-Z][a-z]{2} \d{1,2}|dropped [A-Z][a-z]{2} \d{1,2}:)")
+DATE_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
+BANNED_WORDS = ["non-trivial", "leveraging", "baked into", "kicked off", "blast radius",
+                "key finding", "non-negotiable", "iteratively", "front-of-mind",
+                "underweighted", "pushed through", "delve", "seamlessly"]
+BANNED_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in BANNED_WORDS) + r")\b", re.I)
+
 
 def strip_code(text: str) -> str:
     return CODE_RE.sub("", FENCE_RE.sub("", text))
+
+
+def strip_code_blocks(text: str) -> str:
+    return FENCE_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
 
 
 # --- config + creds ---------------------------------------------------------
@@ -124,14 +145,26 @@ def _unq(s: str) -> str:
     return s[1:-1] if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'" else s
 
 
+def strip_comment(line: str) -> str:
+    quote = None
+    for i, ch in enumerate(line):
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "\"'" and line[:i].rstrip()[-1:] in ("", ":", "-"):
+            quote = ch
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            return line[:i]
+    return line
+
+
 def load_labels(path: str) -> dict:
-    result = {"mappings": {}, "fallback": None, "path_patterns": []}
+    result = {"mappings": {}, "fallback": None, "path_patterns": [], "noise_patterns": []}
     if not path or not os.path.isfile(path):
         return result
     section, item = None, None
     try:
         for raw in open(path, encoding="utf-8"):
-            line = raw.split("#", 1)[0].rstrip()
+            line = strip_comment(raw.rstrip("\n")).rstrip()
             if not line.strip():
                 continue
             indent = len(line) - len(line.lstrip())
@@ -146,10 +179,10 @@ def load_labels(path: str) -> dict:
             elif section == "mappings" and ":" in s:
                 k, _, v = s.partition(":")
                 result["mappings"][_unq(k.strip())] = _unq(v.strip())
-            elif section == "path_patterns":
+            elif section in ("path_patterns", "noise_patterns"):
                 if s.startswith("- "):
                     item = {}
-                    result["path_patterns"].append(item)
+                    result[section].append(item)
                     rest = s[2:].strip()
                     if ":" in rest:
                         k, _, v = rest.partition(":")
@@ -162,23 +195,65 @@ def load_labels(path: str) -> dict:
     return result
 
 
+def rx_search(rx: str, text: str) -> bool:
+    try:
+        return re.search(rx, text) is not None
+    except re.error as e:
+        print(f"warning: bad regex {rx!r} in project labels: {e}", file=sys.stderr)
+        return False
+
+
+def path_label(cwd: str, labels: dict) -> str | None:
+    return next((p["label"] for p in labels.get("path_patterns", [])
+                 if cwd and p.get("regex") and p.get("label") and rx_search(p["regex"], cwd)), None)
+
+
 def canonical_project(event: dict, labels: dict) -> str:
     project, cwd = event.get("project") or "", event.get("cwd") or ""
     mappings = labels.get("mappings", {})
     if project and project in mappings:
         return mappings[project]
     if cwd:
-        cwd = cwd.replace("\\", "/")  # Windows cwds; patterns are written with /
         base = os.path.basename(cwd.rstrip("/"))
         if base in mappings:
             return mappings[base]
-        for entry in labels.get("path_patterns", []):
-            rx, label = entry.get("regex"), entry.get("label")
-            if rx and label and re.search(rx, cwd):
-                return label
+        if (hit := path_label(cwd, labels)):
+            return hit
     if project and project not in ("", "unknown"):
         return project
     return labels.get("fallback") or "Misc"
+
+
+def is_noise_folder(event: dict, labels: dict) -> bool:
+    folder = os.path.basename((event.get("cwd") or "").rstrip("/"))
+    raw = event.get("project") or folder
+    if raw in labels.get("mappings", {}) or folder in labels.get("mappings", {}):
+        return False
+    return bool(raw) and any(
+        e.get("regex") and rx_search(e["regex"], raw) for e in labels.get("noise_patterns", []))
+
+
+def resolve_labels(events: list[dict], labels: dict) -> list[str]:
+    """A scratch-folder event takes a path_patterns hit on its full path, else the
+    label of the nearest-in-time real event in its session, else the fallback."""
+    fallback = labels.get("fallback") or "Misc"
+    real: dict[int, str] = {}
+    by_session: dict[str, list] = {}
+    for i, e in enumerate(events):
+        if is_noise_folder(e, labels):
+            continue
+        real[i] = lab = canonical_project(e, labels)
+        if e.get("session") and lab != fallback:
+            by_session.setdefault(e["session"], []).append((e.get("ts", 0), lab))
+    out = []
+    for i, e in enumerate(events):
+        if i in real:
+            out.append(real[i])
+            continue
+        near = by_session.get(e.get("session") or "")
+        out.append(path_label(e.get("cwd") or "", labels)
+                   or (min(near, key=lambda c: abs(c[0] - e.get("ts", 0)))[1] if near else fallback))
+    return out
 
 
 # --- fetch (subcommand) -----------------------------------------------------
@@ -198,16 +273,26 @@ def is_noise(prompt: str) -> bool:
     return s == "" or s in TRIVIAL_PROMPTS
 
 
+def row_id(row: dict) -> str:
+    return row.get("_id") or row.get("id") or ""
+
+
 def normalize(row: dict) -> dict:
     return {
-        "id": row.get("_id") or row.get("id") or "",
+        "id": row_id(row),
         "ts": row.get("ts", 0),
         "timestamp": row.get("timestamp", ""),
         "prompt": row.get("message", "") or "",
         "response": row.get("response", "") or "",
         "project": row.get("project", "") or "",
-        "cwd": row.get("projectPath", "") or row.get("project_path", "") or "",
+        "cwd": (row.get("projectPath", "") or row.get("project_path", "") or "").replace("\\", "/"),
+        "session": row.get("sessionId", "") or "",
     }
+
+
+def defer_today(date: str, now: datetime, include_today: bool) -> bool:
+    """Before noon the day has barely started; leave its rows for the next run."""
+    return not include_today and date == now.strftime("%Y-%m-%d") and now.hour < 12
 
 
 def cmd_fetch(args) -> int:
@@ -226,7 +311,7 @@ def cmd_fetch(args) -> int:
 
     start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=tz)
     start_ms, end_ms = int(start.timestamp() * 1000), int((start + timedelta(days=1)).timestamp() * 1000)
-    endpoint = f"{url.rstrip('/')}/unprocessed?startTs={start_ms}&endTs={end_ms}"
+    endpoint = f"{url.rstrip('/')}/all?startTs={start_ms}&endTs={end_ms}"
     try:
         with urlopen(Request(endpoint, headers={"Authorization": f"Bearer {token}"}), timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -243,11 +328,15 @@ def cmd_fetch(args) -> int:
     hub_prefix = cfg_get(cfg, "hub_prefix", "PULSE_HUB_PREFIX", "Pulse")
     index_name = cfg_get(cfg, "index_name", "PULSE_INDEX", f"{hub_prefix} Index.md")
 
+    deferred = defer_today(date, datetime.now(tz), args.include_today)
+    if deferred:
+        rows = []
+    new_ids = [row_id(r) for r in rows if not r.get("processed") and row_id(r)]
     events = [e for e in (normalize(r) for r in rows) if not is_noise(e["prompt"])]
     events.sort(key=lambda e: (e.get("ts", 0), e.get("timestamp", "")))
     grouped: dict[str, list] = {}
-    for e in events:
-        grouped.setdefault(canonical_project(e, labels), []).append(
+    for e, label in zip(events, resolve_labels(events, labels)):
+        grouped.setdefault(label, []).append(
             {"ts": e["ts"], "timestamp": e["timestamp"], "prompt": e["prompt"],
              "response": e["response"], "id": e["id"]})
 
@@ -262,11 +351,13 @@ def cmd_fetch(args) -> int:
         "index_name": index_name,
         "note_path": os.path.join(note_dir, f"{date}.md") if notes_repo else "",
         "event_count": len(events),
+        "new_row_count": len(new_ids),
+        "deferred_today": deferred,
         "project_count": len(grouped),
         "buckets": [{"project": p, "events": evs} for p, evs in grouped.items()],
-        # All fetched rows get marked processed after a verified push, including
-        # noise we filtered, so trivial rows do not pile up unprocessed forever.
-        "row_ids": [r.get("_id") or r.get("id") for r in rows if (r.get("_id") or r.get("id"))],
+        # The note is built from the whole day; only rows not yet processed get
+        # marked, including noise, so trivial rows do not pile up forever.
+        "row_ids": new_ids,
     }
     print(json.dumps(out, ensure_ascii=False))
     return 0
@@ -348,7 +439,249 @@ def cmd_month_links(args) -> int:
     return 0
 
 
+# --- note structure (shared by open-loops and lint) -------------------------
+
+def h2_body(text: str, heading: str) -> str | None:
+    m = re.search(rf"^{re.escape(heading)}[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    return m.group(1) if m else None
+
+
+def loop_text(line: str) -> str:
+    m = TASK_RE.match(line)
+    return LOOP_TAG_RE.sub("", m.group(2) if m else line).strip()
+
+
+def loop_items(body: str) -> dict[str, str]:
+    return {loop_text(ln): TASK_RE.match(ln).group(1).lower()
+            for ln in body.splitlines() if TASK_RE.match(ln)}
+
+
+def open_items(body: str) -> set[str]:
+    return {t for t, state in loop_items(body).items() if state == " "}
+
+
+def note_date(path: str) -> str | None:
+    stem = os.path.splitext(os.path.basename(path))[0]
+    return stem if DATE_FILE_RE.match(stem + ".md") else None
+
+
+def dated_notes(path: str) -> list[str]:
+    """Every dated note in the YYYY-MM folders next to this note's month, by date."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(path)))
+    if not os.path.isdir(root):
+        return []
+    notes = []
+    for month in os.listdir(root):
+        mdir = os.path.join(root, month)
+        if MONTH_DIR_RE.match(month) and os.path.isdir(mdir):
+            notes += [os.path.join(mdir, f) for f in os.listdir(mdir) if DATE_FILE_RE.match(f)]
+    return sorted(notes, key=os.path.basename)
+
+
+def previous_note(path: str) -> str | None:
+    date = note_date(path)
+    earlier = [n for n in dated_notes(path) if note_date(n) < date] if date else []
+    return earlier[-1] if earlier else None
+
+
+def read_note(path: str) -> str:
+    return open(path, encoding="utf-8", errors="replace").read()
+
+
+def loops_of(path: str) -> str:
+    return h2_body(strip_code_blocks(read_note(path)), "## Open loops") or ""
+
+
+def since_age(since: str, date: str) -> int | None:
+    """Tags carry no year: take the latest matching date on or before the note
+    (up to 3 years back, so Feb 29 finds a leap year)."""
+    nd = datetime.strptime(date, "%Y-%m-%d")
+    for year in range(nd.year, nd.year - 4, -1):
+        try:
+            d = datetime.strptime(f"{since} {year}", "%b %d %Y")
+        except ValueError:
+            continue
+        if d <= nd:
+            return (nd - d).days
+    return None
+
+
+# --- open-loops (subcommand) ------------------------------------------------
+
+def cmd_open_loops(args) -> int:
+    date = note_date(args.note)
+    if not date:
+        print(f"ERROR: --note must be a dated note (YYYY-MM-DD.md), got {args.note!r}", file=sys.stderr)
+        return 1
+    prev = previous_note(args.note)
+    out = {"previous_note": prev, "carry": [], "legacy_next": [], "closed_in_existing": []}
+    if prev:
+        text = strip_code_blocks(read_note(prev))
+        loops = h2_body(text, "## Open loops")
+        if loops is None:
+            out["legacy_next"] = [ln[2:].strip() for ln in (h2_body(text, "## Next") or "").splitlines()
+                                  if ln.startswith("- ")]
+        for ln in (loops or "").splitlines():
+            t = TASK_RE.match(ln)
+            if t and t.group(1) == " ":
+                tag = LOOP_TAG_RE.search(ln)
+                out["carry"].append({
+                    "text": loop_text(ln),
+                    "project": tag.group("project").strip() if tag else None,
+                    "since": tag.group("since") if tag else None,
+                    "age_days": since_age(tag.group("since"), date) if tag else None})
+    if os.path.isfile(args.note):
+        loops = h2_body(read_note(args.note), "## Open loops") or ""
+        out["closed_in_existing"] = [ln for ln in loops.splitlines()
+                                     if (t := TASK_RE.match(ln)) and t.group(1) != " "]
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
+# --- carry-forward (subcommand) --------------------------------------------
+
+def insert_loops(path: str, new: list[str]) -> bool:
+    """Append items to a note's Open loops (outside code fences), keeping its line endings."""
+    raw = open(path, encoding="utf-8", errors="replace", newline="").read()
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    lines, fenced, start = raw.splitlines(), False, None
+    for i, ln in enumerate(lines):
+        if ln.startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(r"^## Open loops[ \t]*$", ln):
+            start = i
+            break
+    if start is None:
+        return False
+    end = next((j for j in range(start + 1, len(lines)) if lines[j].startswith("## ")), len(lines))
+    kept = [ln for ln in lines[start + 1:end] if ln.strip() and ln.strip() != "- None."]
+    lines[start + 1:end] = [""] + kept + new + ([""] if end < len(lines) else [])
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(nl.join(lines) + nl)
+    return True
+
+
+def cmd_carry_forward(args) -> int:
+    date = note_date(args.note)
+    if not date or not os.path.isfile(args.note):
+        print(f"ERROR: --note must be an existing dated note, got {args.note!r}", file=sys.stderr)
+        return 1
+    later = [n for n in dated_notes(args.note) if note_date(n) > date]
+    pending = [ln for ln in loops_of(args.note).splitlines()
+               if (t := TASK_RE.match(ln)) and t.group(1) == " "]
+    for note in later:
+        if h2_body(strip_code_blocks(read_note(note)), "## Open loops") is None:
+            print(f"OK {os.path.basename(note)} predates Open loops, skipped")
+            continue
+        present = loop_items(loops_of(note))
+        pending = [ln for ln in pending if loop_text(ln) not in present]
+        if pending and insert_loops(note, pending):
+            print(f"CARRIED {len(pending)} item(s) into {note}")
+    if not later:
+        print("OK no later note")
+    return 0
+
+
 # --- lint (subcommand) ------------------------------------------------------
+
+def lint_structure(text: str, path: str, closed: list[str] = ()) -> list[str]:
+    """See skills/digest/references/note-structure.md."""
+    problems = []
+    text = strip_code_blocks(text.lstrip())
+    h2s = [m.group(1).rstrip() for m in re.finditer(r"^(## .*)$", text, re.M)]
+    for s in SECTIONS:
+        if s not in h2s:
+            problems.append(f"missing section: {s}")
+    extra = [h for h in h2s if h not in SECTIONS]
+    if extra:
+        problems.append(f"unexpected sections {extra} (only Summary, Work log, Open loops)")
+    elif [h for h in h2s if h in SECTIONS] != SECTIONS:
+        problems.append("sections out of order or repeated (Summary, Work log, Open loops)")
+    if not (h2_body(text, "## Summary") or "").strip():
+        problems.append("## Summary is empty")
+
+    fm = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    fm_block = re.search(r"^projects:(.*?)(?=^\S|\Z)", fm.group(1) + "\n", re.M | re.S) if fm else None
+    if not fm_block:
+        problems.append("frontmatter has no `projects:` list")
+    fm_projects = re.findall(r'"([^"]+)"', fm_block.group(1)) if fm_block else []
+
+    work = h2_body(text, "## Work log") or ""
+    loops = h2_body(text, "## Open loops") or ""
+    present = loop_items(loops)
+    open_loops = open_items(loops)
+    prev = previous_note(path)
+    carried = open_items(loops_of(prev)) if prev else set()
+
+    blocks: list[tuple[str, str, list[str]]] = []
+    for line in work.splitlines():
+        m = BLOCK_HEADING_RE.match(line)
+        if m:
+            label = (m.group("link") or m.group("bold")).strip()
+            blocks.append((label, f"[[{label}]]" if m.group("link") else label, []))
+        elif line.startswith("### "):
+            problems.append(f"Work log heading is not `### [[Project]]` or `### **Project**`: {line!r}")
+        elif not line.strip():
+            continue
+        elif not line.startswith("- ") or not blocks:
+            problems.append(f"## Work log: every line in a block is one `- ` bullet "
+                            f"(one bullet per line, no wrapping): {line.strip()[:60]!r}")
+        else:
+            blocks[-1][2].append(line)
+    if fm_block and fm_projects != [b[1] for b in blocks]:
+        problems.append(f"frontmatter `projects:` must list each block once, in order, as written "
+                        f"in its heading: expected {[b[1] for b in blocks]}, got {fm_projects}")
+    for label, _, lines in blocks:
+        where = f"block {label!r}"
+        if not lines or not lines[0].startswith("- Outcome: "):
+            problems.append(f"{where}: first bullet must be `- Outcome: ...`")
+        if sum(ln.startswith("- Outcome:") for ln in lines) > 1:
+            problems.append(f"{where}: more than one `- Outcome:`")
+        refs = [i for i, ln in enumerate(lines) if ln.startswith("- Refs:")]
+        if refs and refs[-1] != len(lines) - 1:
+            problems.append(f"{where}: `- Refs:` must be the last bullet")
+        for ln in lines:
+            if (p := PREFIX_RE.match(ln)) and p.group(0) != f"- {p.group(2).capitalize()}:":
+                problems.append(f"{where}: write the prefix exactly as `- {p.group(2).capitalize()}:`: "
+                                f"{ln[:70]!r}")
+            if ln.startswith("- Decided:") and "Why:" not in ln:
+                problems.append(f"{where}: Decided bullet has no `Why:`: {ln[:70]!r}")
+            if ln.startswith("- Bug:") and not ("Cause:" in ln and "Fix:" in ln):
+                problems.append(f"{where}: Bug bullet needs `Cause:` and `Fix:`: {ln[:70]!r}")
+            if TASK_RE.match(ln):
+                problems.append(f"{where}: use `- Open: ...` in the Work log; checkboxes live "
+                                f"only in ## Open loops: {ln[:70]!r}")
+            if ln.startswith("- Open:") and ln[len("- Open:"):].strip() in carried:
+                problems.append(f"{where}: carried items stay in ## Open loops only, not as "
+                                f"`- Open:`: {ln[:70]!r}")
+            elif ln.startswith("- Open:") and ln[len("- Open:"):].strip() not in open_loops:
+                problems.append(f"{where}: `- Open:` item is not an open `- [ ]` item in "
+                                f"## Open loops (same text): {ln[:70]!r}")
+
+    items = [ln for ln in loops.splitlines() if ln.strip()]
+    if not items:
+        problems.append("## Open loops is empty (write `- None.` if nothing is open)")
+    for ln in items:
+        if ln.strip() == "- None.":
+            if len(items) > 1:
+                problems.append("## Open loops has `- None.` next to real items")
+        elif not (t := TASK_RE.match(ln)):
+            problems.append(f"## Open loops line is not a `- [ ]` / `- [x]` item "
+                            f"(one item per line, no indent): {ln[:70]!r}")
+        elif not (tag := LOOP_TAG_RE.search(ln)):
+            problems.append(f"## Open loops item has no `(Project, since Mon D)` tag: {ln[:70]!r}")
+        elif t.group(1) != " " and not CLOSED_RE.search(tag.group(0)):
+            problems.append(f"## Open loops closed item needs `done Mon D` or `dropped Mon D: reason` "
+                            f"in its tag: {ln[:70]!r}")
+
+    for item in sorted(carried - present.keys()):
+        problems.append(f"open loop from {os.path.basename(prev)} is missing; carry it with "
+                        f"its exact text (open, done, or dropped): {item[:70]!r}")
+    for ln in closed:
+        if present.get(loop_text(ln)) != "x":
+            problems.append(f"item already closed in this note must stay closed: {ln[:70]!r}")
+    return problems
+
 
 def cmd_lint(args) -> int:
     failed = False
@@ -361,12 +694,16 @@ def cmd_lint(args) -> int:
         else:
             if not raw.lstrip().startswith("---"):
                 problems.append("missing YAML frontmatter")
-            for sec in ("## Summary", "## Work log"):
-                if sec not in raw:
-                    problems.append(f"missing section: {sec}")
+            if not (args.allow_legacy and h2_body(raw, "## Open loops") is None):
+                closed = (json.load(open(args.loops_json, encoding="utf-8"))["closed_in_existing"]
+                          if args.loops_json else [])
+                problems += lint_structure(raw, note, closed)
             for i, line in enumerate(raw.splitlines(), 1):
-                if DASH_RE.search(strip_code(line)):
+                body = strip_code(line)
+                if DASH_RE.search(body):
                     problems.append(f"line {i}: em/en dash in body")
+                if (w := BANNED_RE.search(body)):
+                    problems.append(f"line {i}: AI-tell phrase {w.group(0)!r} (see humanizer.md)")
         if problems:
             failed = True
             print(f"FAIL {note}", file=sys.stderr)
@@ -456,6 +793,8 @@ def main() -> int:
 
     f = sub.add_parser("fetch", help="fetch a day's rows from Convex -> JSON")
     f.add_argument("--date", default="yesterday")
+    f.add_argument("--include-today", action="store_true",
+                   help="digest today even before noon (by default those rows wait)")
     f.set_defaults(fn=cmd_fetch)
 
     r = sub.add_parser("render-block", help="render one Work-log project block")
@@ -472,8 +811,20 @@ def main() -> int:
     ml.add_argument("--index", required=True)
     ml.set_defaults(fn=cmd_month_links)
 
-    li = sub.add_parser("lint", help="gate: sections + no em dash")
+    ol = sub.add_parser("open-loops", help="open items to carry from the previous note")
+    ol.add_argument("--note", required=True, help="the note being written (its note_path)")
+    ol.set_defaults(fn=cmd_open_loops)
+
+    cf = sub.add_parser("carry-forward", help="after a backfill: copy its new open items into the newest note")
+    cf.add_argument("--note", required=True)
+    cf.set_defaults(fn=cmd_carry_forward)
+
+    li = sub.add_parser("lint", help="gate: layout, typed bullets, open loops, no em dash")
     li.add_argument("notes", nargs="+")
+    li.add_argument("--loops-json", default=None,
+                    help="open-loops output: items closed before regeneration must stay closed")
+    li.add_argument("--allow-legacy", action="store_true",
+                    help="only check frontmatter and dashes on notes written before Open loops")
     li.set_defaults(fn=cmd_lint)
 
     co = sub.add_parser("coverage", help="gate: every bucket present in the note")

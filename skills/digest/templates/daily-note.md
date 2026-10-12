@@ -2,6 +2,7 @@
 date: "<DATE>"
 tags: [pulse, daily]
 source: claude-code
+projects: []
 ---
 
 # <DAY_HEADER>
@@ -10,6 +11,4 @@ source: claude-code
 
 ## Work log
 
-## Decisions & signals
-
-## Next
+## Open loops

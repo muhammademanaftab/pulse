@@ -211,9 +211,9 @@ def render_assistant(parsed: list[dict], start: int) -> tuple[str, str | None]:
                 last_was_task_noti = True
 
     if enqueue_count and enqueue_count != task_noti_count:
-        return "", None  # background work pending — skip
+        return "", None  # background work pending, skip
     if last_was_task_noti:
-        return "", None  # assistant hasn't responded yet — skip
+        return "", None  # assistant hasn't responded yet, skip
     return "\n".join(parts).strip(), model or "claude-code"
 
 

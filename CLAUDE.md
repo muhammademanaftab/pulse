@@ -30,7 +30,7 @@ digest SKILL" (notes), matching how Eman actually runs it.
   table + HTTP API (`/ingest`, `/unprocessed`, `/all`, `/mark-processed`), Bearer
   auth via `INGEST_TOKEN`.
 - **Digest (L3):** `skills/digest/digest.py` (subcommands `fetch`, `render-block`,
-  `month-links`, `lint`, `coverage`, `check-links`) + `skills/digest/SKILL.md` (the
+  `month-links`, `open-loops`, `carry-forward`, `lint`, `coverage`, `check-links`) + `skills/digest/SKILL.md` (the
   LLM runbook, read by the routine; paths are repo-relative). Writes an Obsidian daily
   note to the user's notes repo, links it into a month hub + index, runs the three
   gates and a reviewer subagent, then commits/pushes and marks rows processed.
