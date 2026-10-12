@@ -1,7 +1,9 @@
 # Note structure
 
 Read this before writing any daily note. It defines what a finished note looks
-like and why. `digest.py lint` checks the parts marked (lint).
+like and why. `digest.py lint` checks the parts marked (lint). Notes written
+before this layout fail it; `lint --allow-legacy` checks only their frontmatter
+and dashes.
 
 ## The goal
 
@@ -80,7 +82,9 @@ paths.
 ## Work log blocks
 
 One block per bucket in the digest JSON. The heading comes from
-`digest.py render-block`; never type it by hand.
+`digest.py render-block`; never type it by hand. The fallback bucket (`Misc`)
+holds work with no project; if it is only scratch work, its block is just an
+`Outcome:` saying what it was.
 
 Inside a block, bullets go in this order. Skip any type that has nothing real in
 it; never write an empty or "none" bullet inside a block.
@@ -161,9 +165,9 @@ The day's to-do ledger. It carries forward from day to day so nothing is
 forgotten. Only `- [ ]` and `- [x]` lines count; anything else fails lint.
 
 1. Run `digest.py open-loops --note <note_path>` before writing the note. It
-   prints JSON: `carry` (the previous note's open items, each with `text`,
-   `project`, `since`, `age_days`), `legacy_next` (the previous note's `## Next`
-   items when that note predates Open loops), and `closed_in_existing` (items
+   prints JSON: `previous_note` (its path, or null), `carry` (that note's open
+   items, each with `text`, `project`, `since`, `age_days`), `legacy_next` (that
+   note's `## Next` items when it predates Open loops), and `closed_in_existing` (items
    already closed in this date's note, by hand or by an earlier run, before it is
    regenerated).
 2. Every `carry` item appears again, with its text unchanged (lint):
@@ -176,8 +180,8 @@ forgotten. Only `- [ ]` and `- [x]` lines count; anything else fails lint.
      `- [x] <text> (<Project>, since <date>, dropped <Mon D>: <reason>)`
 
    A closed item needs `done <Mon D>` or `dropped <Mon D>: <reason>` (lint). Only
-   close or drop an item when today's work shows it. Without evidence it stays
-   open. Carried items stay in Open loops only: do not repeat them as `Open:` in
+   close or drop an item when today's work shows it (or it is stale, or already
+   closed in this note, below). Without evidence it stays open. Carried items stay in Open loops only: do not repeat them as `Open:` in
    the Work log; put today's progress in the parentheses.
 3. **Stale items age out.** A `carry` item with `age_days` of 7 or more and no
    related work today is dropped:
@@ -185,12 +189,13 @@ forgotten. Only `- [ ]` and `- [x]` lines count; anything else fails lint.
    If it matters it will come up again.
 4. **Closed stays closed.** Much of what gets done never shows up in a session.
    Ticking `- [x]` in the latest note's Open loops is enough: it is not carried
-   again. Every item in `closed_in_existing` stays `- [x]` when this note is
-   regenerated.
+   again. `closed_in_existing` holds the full lines already closed in this note;
+   write each one back as it is (lint checks it stays closed). If a tag has no
+   `done` or `dropped` yet, add `done <Mon D>` with this note's date.
 5. Add an open item for every `Open:` bullet in today's Work log.
-6. For each still-relevant `legacy_next` item, add an open item
-   `(<Project>, since <Mon D of that note>)`.
-7. If nothing is open at all, write `- None.` (lint: never leave it empty).
+6. For each `legacy_next` item the Work log does not show done today, add an open
+   item `(<Project>, since <Mon D of that note>)`. Leave out ones done today.
+7. If Open loops has no items at all, write `- None.` (lint: never leave it empty).
 
 Closed (`[x]`) items appear only on the day they close.
 

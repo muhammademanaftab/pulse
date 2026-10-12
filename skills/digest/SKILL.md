@@ -43,7 +43,7 @@ SKILL file.
 
    The JSON has: `date, timezone, notes_repo_dir, vault_subfolder, projects_dir,
    hub_prefix, index_name, note_path, event_count, deferred_today, project_count,
-   buckets:[{project, events:[{ts,prompt,response,id}]}], row_ids`. Use `note_path`, `projects_dir`,
+   buckets:[{project, events:[{ts,timestamp,prompt,response,id}]}], row_ids`. Use `note_path`, `projects_dir`,
    `hub_prefix`, and `index_name` from here; do not hand-build paths.
 
 3. **Deferred or quiet day.** If `deferred_today` is true, the date is today and
@@ -122,7 +122,7 @@ SKILL file.
 
 7. **Run the gates in order. Any failure stops the run: do not commit, push, or
    mark rows processed.** Fix the note and re-run the failed gate.
-   - Lint: `python3 skills/digest/digest.py lint "<note_path>"`
+   - Lint: `python3 skills/digest/digest.py lint "<note_path>" --loops-json /tmp/pulse-loops.json`
    - Coverage: `python3 skills/digest/digest.py coverage --digest-json /tmp/pulse-digest.json --note "<note_path>" --projects-dir "<projects_dir>"`
    - Link health: `python3 skills/digest/digest.py check-links --vault "<notes_repo_dir>" --subfolder "<vault_subfolder first segment>"`
 
@@ -150,9 +150,11 @@ SKILL file.
      each `Rule:` was stated as a standing rule, and each `Outcome:` says what is
      different now, not what was attempted.
    - **Open loops are honest**: every `carry` item is present; one is closed or
-     dropped only when the rows show it (or it is stale per note-structure.md);
-     every `closed_in_existing` item is still `- [x]`; no open item names work the
-     Work log shows finished.
+     dropped only when the rows show it, it is stale per note-structure.md, or it
+     is in `closed_in_existing` (closed by hand, no evidence needed); every
+     `closed_in_existing` item is still `- [x]`; every `legacy_next` item is
+     either open or done in today's Work log; no open item names work the Work
+     log shows finished.
 
    If the reviewer returns FAIL, fix the note for the exact gaps it named, then
    re-run step 7 (the gates) and re-review. Only proceed to step 8 on PASS. Do not

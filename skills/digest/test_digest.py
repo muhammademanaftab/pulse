@@ -139,6 +139,25 @@ def test_checkbox_in_work_log_fails():
                  "checkboxes live only in ## Open loops")
 
 
+def test_unindented_continuation_and_rule_lines_fail():
+    assert_fails(GOOD.replace("- Added a preview button. Deployed.", "- Added a preview button.\nDeployed."),
+                 "one bullet per line")
+    assert_fails(GOOD.replace("### **Notifications**", "---\n\n### **Notifications**"), "one bullet per line")
+
+
+def test_items_after_a_rule_in_open_loops_are_not_hidden():
+    prev = GOOD.replace("(Web App, since Jun 2)\n", "(Web App, since Jun 2)\n\n---\n\n"
+                        "- [ ] Hidden follow-up. (Web App, since Jun 1)\n", 1)
+    _, out = run_open_loops(note_path(vault_with({"2026-06-01": prev}), "2026-06-02"))
+    assert "Hidden follow-up." in [c["text"] for c in out["carry"]], out
+    assert_fails(prev, "is not a `- [ ]` / `- [x]` item")
+
+
+def test_heading_inside_code_fence_does_not_split_a_section():
+    text = GOOD.replace("- Refs: PR #41, `home.tsx`", "- Refs: PR #41\n```\n## not a heading\n```")
+    assert not any("unexpected sections" in p for p in lint(text)), lint(text)
+
+
 def test_wrapped_bullet_fails():
     assert_fails(GOOD.replace(" Fix: lock each job (PR #42).", "\n  Fix: lock each job (PR #42)."),
                  "one bullet per line")
@@ -165,8 +184,8 @@ def test_legacy_section_is_rejected():
     assert_fails(GOOD + "\n## Next\n\n- something\n", "unexpected sections")
 
 
-def test_trailing_spaces_and_footer_ok():
-    text = GOOD.replace("## Open loops\n", "## Open loops  \n") + "\n---\n\nPart of [[Pulse 2026-06|June 2026]]\n"
+def test_trailing_spaces_in_heading_ok():
+    text = GOOD.replace("## Open loops\n", "## Open loops  \n")
     assert lint(text) == [], lint(text)
 
 
@@ -175,9 +194,8 @@ def test_open_loop_needs_tag():
 
 
 def test_open_loops_cannot_be_empty():
-    text = GOOD.replace("- [ ] Add the preview button to mobile.\n", "")
-    text = text.replace("- [ ] Add the preview button to mobile. (Web App, since Jun 2)\n", "")
-    assert_fails(text, "## Open loops is empty")
+    assert_fails(GOOD.replace("- [ ] Add the preview button to mobile. (Web App, since Jun 2)\n", ""),
+                 "## Open loops is empty")
 
 
 def test_label_must_be_in_frontmatter():
@@ -205,7 +223,7 @@ def test_hand_typed_heading_fails():
 def test_banned_phrase_and_dash_fail_full_lint():
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(GOOD.replace("Added a preview button.", "Added a non-trivial preview button \u2014 nice."))
-    args = type("A", (), {"notes": [f.name], "allow_legacy": False})
+    args = type("A", (), {"notes": [f.name], "allow_legacy": False, "loops_json": None})
     with contextlib.redirect_stderr(io.StringIO()) as err:
         assert dg.cmd_lint(args) == 1
     os.unlink(f.name)
@@ -216,7 +234,7 @@ def test_allow_legacy_skips_structure_only_for_old_notes():
     legacy = "---\nx: 1\n---\n\n# Old\n\n## Summary\n\nS.\n\n## Work log\n\n## Next\n\n- Ship\n"
     root = vault_with({"2026-05-01": legacy, "2026-05-02": legacy.replace("Ship", "Ship \u2014 now")})
     run = lambda d, legacy_ok: dg.cmd_lint(type("A", (), {"notes": [note_path(root, d)],
-                                                          "allow_legacy": legacy_ok}))
+                                                          "allow_legacy": legacy_ok, "loops_json": None}))
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         assert run("2026-05-01", True) == 0
         assert run("2026-05-01", False) == 1
@@ -248,6 +266,23 @@ def test_carry_check_is_not_a_substring_match():
     assert_fails(GOOD, "open loop from 2026-06-01.md is missing", root=root)
 
 
+def test_closed_in_existing_must_stay_closed():
+    closed = ["- [x] Add the preview button to mobile. (Web App, since Jun 2, done Jun 2)"]
+    problems = dg.lint_structure(GOOD, note_path(vault_with({}), "2026-06-02"), closed)
+    assert any("must stay closed" in p for p in problems), problems
+
+
+def test_carried_item_is_not_repeated_as_open_bullet():
+    prev = GOOD.replace('date: "2026-06-02"', 'date: "2026-06-01"')
+    root = vault_with({"2026-06-01": prev})
+    assert_fails(GOOD, "carried items stay in ## Open loops only", root=root)
+
+
+def test_prefix_must_be_exact():
+    assert_fails(GOOD.replace("- Decided: keep", "- **Decided:** keep"), "write the prefix exactly as `- Decided:`")
+    assert_fails(GOOD.replace("- Bug: some", "- bug: some"), "write the prefix exactly as `- Bug:`")
+
+
 def test_previous_note_ignores_non_month_folders_and_undated_notes():
     root = vault_with({"2026-06-01": PREV})
     os.makedirs(os.path.join(root, "archive"))
@@ -259,8 +294,8 @@ def test_previous_note_ignores_non_month_folders_and_undated_notes():
 
 def test_carry_item_kept_or_closed_passes():
     root = vault_with({"2026-06-01": PREV})
-    kept = GOOD.replace("(Web App, since Jun 2)\n",
-                        "(Web App, since Jun 2)\n- [ ] Write the release notes. (Web App, since May 20)\n", 1)
+    kept = GOOD.replace("- Open: Add the preview button to mobile.\n", "").replace(
+        "(Web App, since Jun 2)\n", "(Web App, since Jun 2)\n- [ ] Write the release notes. (Web App, since May 20)\n", 1)
     assert lint(kept, root=root) == [], lint(kept, root=root)
     closed = kept.replace("- [ ] Write the release notes. (Web App, since May 20)",
                           "- [x] Write the release notes. (Web App, since May 20, dropped Jun 2: stale)")
@@ -293,7 +328,7 @@ def test_open_loops_keeps_closed_items_and_reads_legacy_next():
     _, out = run_open_loops(note_path(root, "2026-06-02"))
     assert out["legacy_next"] == ["Ship the beta"], out
     assert out["carry"] == [], out
-    assert out["closed_in_existing"] == ["Add the preview button to mobile."], out
+    assert out["closed_in_existing"] == ["- [X] Add the preview button to mobile. (Web App, since Jun 2)"], out
     assert run_open_loops(os.path.join(root, "2026-06", "draft.md")) == (1, None)
 
 
@@ -349,6 +384,7 @@ def test_label_comments_keep_hash_in_values():
     assert dg.strip_comment('  "C# Tools": Tools  # note') == '  "C# Tools": Tools  '
     assert dg.strip_comment('  - regex: "^tmp#?$"') == '  - regex: "^tmp#?$"'
     assert dg.strip_comment("# whole line") == ""
+    assert dg.strip_comment("  bobs-app: Bob's App  # personal") == "  bobs-app: Bob's App  "
 
 
 def test_tag_allows_parentheses_in_project():
@@ -373,6 +409,26 @@ def test_synth_parses_new_layout():
     assert [(b["project"], b["bold"]) for b in blocks] == [("Web App", False), ("Notifications", True)]
     assert blocks[0]["bullets"][0].startswith("Outcome: "), blocks[0]["bullets"]
     assert len(blocks[1]["bullets"]) == 2, blocks[1]["bullets"]
+
+
+def test_synth_reports_latest_loop_state_for_the_week():
+    root = tempfile.mkdtemp()
+    days = {"2026-06-08": "- [ ] Ship it. (Web App (beta), since Jun 8)\n- [ ] Call Sam. (Web App, since Jun 8)",
+            "2026-06-09": "- [x] Ship it. (Web App (beta), since Jun 8, done Jun 9)\n"
+                          "- [ ] Call Sam. (Web App, since Jun 8)",
+            "2026-06-10": "- [ ] Call Sam. (Web App, since Jun 8; tried Jun 10)"}
+    for date, loops in days.items():
+        os.makedirs(os.path.join(root, date[:7]), exist_ok=True)
+        with open(note_path(root, date), "w", encoding="utf-8") as f:
+            f.write(GOOD.split("## Open loops")[0] + "## Open loops\n\n" + loops + "\n")
+    week = os.path.join(root, "week.json")
+    with open(week, "w", encoding="utf-8") as f:
+        json.dump({"notes_repo_dir": root, "notes": [f"{d[:7]}/{d}.md" for d in days]}, f)
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        sy.cmd_buckets(type("A", (), {"week_json": week, "projects_dir": None}))
+    assert json.loads(out.getvalue())["open_loops"] == [
+        "- [x] Ship it. (Web App (beta), since Jun 8, done Jun 9)",
+        "- [ ] Call Sam. (Web App, since Jun 8; tried Jun 10)"]
 
 
 def main() -> int:

@@ -17,7 +17,7 @@ If the user states the same constraint across 3+ prompts in a day, or states it 
 a rule ("never", "always"), that is a rule for future work, not a one-time edit.
 Write it as a `- Rule:` bullet.
 
-> - Rule: every API handler must validate input before touching the database. Stated 4 times while reviewing the webhook code.
+> - Rule: every API handler must validate input before touching the database.
 
 ### 2. Confusion → resolution
 

@@ -35,6 +35,7 @@ HEADING_RE = re.compile(
 ANY_H3_RE = re.compile(r"^###\s")
 H2_RE = re.compile(r"^##\s")
 BULLET_RE = re.compile(r"^\s*-\s+(.*)$")
+LOOP_RE = re.compile(r"^- \[( |x|X)\] (.+?)\s*\([^()]*(?:\([^()]*\)[^()]*)*since [^()]*\)\s*$")
 
 
 def strip_code(text: str) -> str:
@@ -225,13 +226,19 @@ def cmd_buckets(args) -> int:
     buckets: dict[str, dict] = {}
     daily_summaries = []
     scanned = 0
+    loop_state: dict[str, str] = {}
     for rel in week.get("notes", []):
         full = os.path.join(repo, rel) if repo else rel
         if not os.path.isfile(full):
             continue
         scanned += 1
         note_date = os.path.splitext(os.path.basename(rel))[0]
-        summary, blocks = parse_note(open(full, encoding="utf-8").read())
+        text = open(full, encoding="utf-8").read()
+        summary, blocks = parse_note(text)
+        loops = re.search(r"^## Open loops[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+        for ln in (loops.group(1) if loops else "").splitlines():
+            if (t := LOOP_RE.match(ln)):
+                loop_state[t.group(2)] = ln
         if summary:
             daily_summaries.append({"date": note_date, "summary": summary})
         for blk in blocks:
@@ -249,6 +256,7 @@ def cmd_buckets(args) -> int:
         "notes_scanned": scanned,
         "daily_summaries": daily_summaries,
         "buckets": buckets,
+        "open_loops": list(loop_state.values()),
     }
     print(json.dumps(out, ensure_ascii=False))
     return 0

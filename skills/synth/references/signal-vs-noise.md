@@ -16,7 +16,9 @@ Daily notes use typed bullets (see `skills/digest/references/note-structure.md`)
 
 - `Outcome:` is the best one-line summary of that day's work on a project.
 - `Decided:`, `Bug:`, `Rule:` and `Learned:` are the decisions, fixes and lessons.
-- `Open:` and `[ ]` items are unfinished. Never report them as shipped.
+- `Open:` bullets were unfinished that day. `open_loops` in the buckets JSON
+  holds each item's latest state that week: never report it as still open if it
+  is `- [x]` there, or as shipped if it is `- [ ]`.
 - `Refs:` is plumbing: links, not results.
 
 Older notes have plain bullets; read them as results.

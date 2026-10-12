@@ -42,10 +42,11 @@ SKIP_DIRS = {".git", ".obsidian", "node_modules", "__pycache__", ".trash"}
 SECTIONS = ["## Summary", "## Work log", "## Open loops"]
 BLOCK_HEADING_RE = re.compile(
     r"^###\s+(?:\[\[(?P<link>[^\]#|]+)(?:[#|][^\]]*)?\]\]|\*\*(?P<bold>[^*]+)\*\*)\s*$")
-TASK_RE = re.compile(r"^\s*- \[( |x|X)\] (.+)$")
+TASK_RE = re.compile(r"^- \[( |x|X)\] (.+)$")
 LOOP_TAG_RE = re.compile(
     r"\s*\((?P<project>(?:[^()]|\([^()]*\))*?),\s*since (?P<since>[A-Z][a-z]{2} \d{1,2})[^()]*\)\s*$")
 MONTH_DIR_RE = re.compile(r"^\d{4}-\d{2}$")
+PREFIX_RE = re.compile(r"^- (\*\*)?(outcome|decided|bug|rule|learned|open|refs)(\*\*)?:", re.I)
 CLOSED_RE = re.compile(r",\s*(?:done [A-Z][a-z]{2} \d{1,2}|dropped [A-Z][a-z]{2} \d{1,2}:)")
 DATE_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
 BANNED_WORDS = ["non-trivial", "leveraging", "baked into", "kicked off", "blast radius",
@@ -148,7 +149,7 @@ def strip_comment(line: str) -> str:
     for i, ch in enumerate(line):
         if quote:
             quote = None if ch == quote else quote
-        elif ch in "\"'":
+        elif ch in "\"'" and line[:i].rstrip()[-1:] in ("", ":", "-"):
             quote = ch
         elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
             return line[:i]
@@ -434,11 +435,8 @@ def cmd_month_links(args) -> int:
 # --- note structure (shared by open-loops and lint) -------------------------
 
 def h2_body(text: str, heading: str) -> str | None:
-    """Up to the next H2, without a trailing `---` footer."""
     m = re.search(rf"^{re.escape(heading)}[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-    if not m:
-        return None
-    return re.sub(r"^---[ \t]*\n(?![\s\S]*^#)[\s\S]*\Z", "", m.group(1), flags=re.M)
+    return m.group(1) if m else None
 
 
 def loop_text(line: str) -> str:
@@ -514,18 +512,19 @@ def cmd_open_loops(args) -> int:
                     "age_days": since_age(tag.group("since"), date) if tag else None})
     if os.path.isfile(args.note):
         loops = h2_body(read_note(args.note), "## Open loops") or ""
-        out["closed_in_existing"] = [t for t, state in loop_items(loops).items() if state == "x"]
+        out["closed_in_existing"] = [ln for ln in loops.splitlines()
+                                     if (t := TASK_RE.match(ln)) and t.group(1) != " "]
     print(json.dumps(out, ensure_ascii=False))
     return 0
 
 
 # --- lint (subcommand) ------------------------------------------------------
 
-def lint_structure(text: str, path: str) -> list[str]:
+def lint_structure(text: str, path: str, closed: list[str] = ()) -> list[str]:
     """See skills/digest/references/note-structure.md."""
     problems = []
-    text = text.lstrip()
-    h2s = [m.group(1).rstrip() for m in re.finditer(r"^(## .*)$", strip_code_blocks(text), re.M)]
+    text = strip_code_blocks(text.lstrip())
+    h2s = [m.group(1).rstrip() for m in re.finditer(r"^(## .*)$", text, re.M)]
     for s in SECTIONS:
         if s not in h2s:
             problems.append(f"missing section: {s}")
@@ -545,11 +544,11 @@ def lint_structure(text: str, path: str) -> list[str]:
 
     work = h2_body(text, "## Work log") or ""
     loops = h2_body(text, "## Open loops") or ""
-    for section, body in (("Work log", work), ("Open loops", loops)):
-        for ln in body.splitlines():
-            if ln[:1] in (" ", "\t") and ln.strip():
-                problems.append(f"## {section}: one bullet per line, do not wrap: {ln.strip()[:60]!r}")
-    open_loops = {t for t, state in loop_items(loops).items() if state == " "}
+    present = loop_items(loops)
+    open_loops = {t for t, state in present.items() if state == " "}
+    prev = previous_note(path)
+    prev_loops = h2_body(strip_code_blocks(read_note(prev)), "## Open loops") if prev else None
+    carried = {t for t, state in loop_items(prev_loops or "").items() if state == " "}
 
     blocks: list[tuple[str, str, list[str]]] = []
     for line in work.splitlines():
@@ -559,7 +558,12 @@ def lint_structure(text: str, path: str) -> list[str]:
             blocks.append((label, f"[[{label}]]" if m.group("link") else label, []))
         elif line.startswith("### "):
             problems.append(f"Work log heading is not `### [[Project]]` or `### **Project**`: {line!r}")
-        elif blocks and line.strip() and line[:1] not in (" ", "\t"):
+        elif not line.strip():
+            continue
+        elif not line.startswith("- ") or not blocks:
+            problems.append(f"## Work log: every line in a block is one `- ` bullet "
+                            f"(one bullet per line, no wrapping): {line.strip()[:60]!r}")
+        else:
             blocks[-1][2].append(line)
     if fm_block and fm_projects != [b[1] for b in blocks]:
         problems.append(f"frontmatter `projects:` must list each block once, in order, as written "
@@ -574,6 +578,9 @@ def lint_structure(text: str, path: str) -> list[str]:
         if refs and refs[-1] != len(lines) - 1:
             problems.append(f"{where}: `- Refs:` must be the last bullet")
         for ln in lines:
+            if (p := PREFIX_RE.match(ln)) and p.group(0) != f"- {p.group(2).capitalize()}:":
+                problems.append(f"{where}: write the prefix exactly as `- {p.group(2).capitalize()}:`: "
+                                f"{ln[:70]!r}")
             if ln.startswith("- Decided:") and "Why:" not in ln:
                 problems.append(f"{where}: Decided bullet has no `Why:`: {ln[:70]!r}")
             if ln.startswith("- Bug:") and not ("Cause:" in ln and "Fix:" in ln):
@@ -581,7 +588,10 @@ def lint_structure(text: str, path: str) -> list[str]:
             if TASK_RE.match(ln):
                 problems.append(f"{where}: use `- Open: ...` in the Work log; checkboxes live "
                                 f"only in ## Open loops: {ln[:70]!r}")
-            if ln.startswith("- Open:") and ln[len("- Open:"):].strip() not in open_loops:
+            if ln.startswith("- Open:") and ln[len("- Open:"):].strip() in carried:
+                problems.append(f"{where}: carried items stay in ## Open loops only, not as "
+                                f"`- Open:`: {ln[:70]!r}")
+            elif ln.startswith("- Open:") and ln[len("- Open:"):].strip() not in open_loops:
                 problems.append(f"{where}: `- Open:` item is not an open `- [ ]` item in "
                                 f"## Open loops (same text): {ln[:70]!r}")
 
@@ -592,23 +602,21 @@ def lint_structure(text: str, path: str) -> list[str]:
         if ln.strip() == "- None.":
             if len(items) > 1:
                 problems.append("## Open loops has `- None.` next to real items")
-        elif ln[:1] in (" ", "\t"):
-            continue  # reported above as a wrapped line
         elif not (t := TASK_RE.match(ln)):
-            problems.append(f"## Open loops line is not a `- [ ]` / `- [x]` item: {ln[:70]!r}")
+            problems.append(f"## Open loops line is not a `- [ ]` / `- [x]` item "
+                            f"(one item per line, no indent): {ln[:70]!r}")
         elif not (tag := LOOP_TAG_RE.search(ln)):
             problems.append(f"## Open loops item has no `(Project, since Mon D)` tag: {ln[:70]!r}")
         elif t.group(1) != " " and not CLOSED_RE.search(tag.group(0)):
             problems.append(f"## Open loops closed item needs `done Mon D` or `dropped Mon D: reason` "
                             f"in its tag: {ln[:70]!r}")
 
-    prev = previous_note(path)
-    prev_loops = h2_body(read_note(prev), "## Open loops") if prev else None
-    present = loop_items(loops)
-    for item, state in loop_items(prev_loops or "").items():
-        if state == " " and item not in present:
-            problems.append(f"open loop from {os.path.basename(prev)} is missing "
-                            f"(keep it open, or close or drop it): {item[:70]!r}")
+    for item in sorted(carried - present.keys()):
+        problems.append(f"open loop from {os.path.basename(prev)} is missing; carry it with "
+                        f"its exact text (open, done, or dropped): {item[:70]!r}")
+    for ln in closed:
+        if present.get(loop_text(ln)) != "x":
+            problems.append(f"item already closed in this note must stay closed: {ln[:70]!r}")
     return problems
 
 
@@ -624,7 +632,9 @@ def cmd_lint(args) -> int:
             if not raw.lstrip().startswith("---"):
                 problems.append("missing YAML frontmatter")
             if not (args.allow_legacy and h2_body(raw, "## Open loops") is None):
-                problems += lint_structure(raw, note)
+                closed = (json.load(open(args.loops_json, encoding="utf-8"))["closed_in_existing"]
+                          if args.loops_json else [])
+                problems += lint_structure(raw, note, closed)
             for i, line in enumerate(raw.splitlines(), 1):
                 body = strip_code(line)
                 if DASH_RE.search(body):
@@ -744,6 +754,8 @@ def main() -> int:
 
     li = sub.add_parser("lint", help="gate: layout, typed bullets, open loops, no em dash")
     li.add_argument("notes", nargs="+")
+    li.add_argument("--loops-json", default=None,
+                    help="open-loops output: items closed before regeneration must stay closed")
     li.add_argument("--allow-legacy", action="store_true",
                     help="only check frontmatter and dashes on notes written before Open loops")
     li.set_defaults(fn=cmd_lint)
