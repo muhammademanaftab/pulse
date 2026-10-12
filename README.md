@@ -19,35 +19,38 @@ A day looks like this:
 date: "2026-06-02"
 tags: [pulse, daily]
 source: claude-code
+projects:
+  - "[[Web App]]"
+  - "[[Notifications]]"
 ---
 
 # Tuesday, June 2, 2026
 
 ## Summary
 
-Made the app open much faster, fixed a bug that was dropping some notifications, and decided to keep people signed in for longer.
+Made the app open much faster, fixed a bug that was dropping some notifications, and decided to keep people signed in for longer. The notification fix still needs a load test.
 
 ## Work log
 
 ### [[Web App]]
 
-- Made the home page load in about 1 second instead of 4.
-- Added a "preview before you publish" button so you can check a change before it goes live.
+- Outcome: The home page opens in about 1 second instead of 4, and changes can be previewed before they go live.
+- Added a "preview before you publish" button. Deployed.
+- Decided: keep people signed in for 30 days. Why: being asked to log in every visit was the top complaint. Rejected: a 7 day session.
+- Rule: anything that deletes data asks "are you sure?" first.
+- [ ] Add the preview button to the mobile app too.
 
 ### [[Notifications]]
 
-- Fixed the bug where some emails and alerts were getting lost.
-- Let people choose which alerts they get, by email or on their phone.
+- Outcome: Emails and alerts no longer get lost, and people choose which alerts they get.
+- Bug: some alerts never arrived. Cause: two workers picked the same job and one dropped it. Fix: lock each job before sending (PR #42).
+- [ ] Load test the fix before turning it on for everyone.
 
-## Decisions & signals
+## Open loops
 
-- Decided to keep people signed in for 30 days instead of asking every time. See [[Decisions]].
-- Came up all week: anything that deletes data should ask "are you sure?" first.
-
-## Next
-
-- Test the notification fix under heavy load before turning it on for everyone.
-- Add the new preview button to the mobile app too.
+- [ ] Add the preview button to the mobile app too. (Web App, since Jun 2)
+- [ ] Load test the fix before turning it on for everyone. (Notifications, since Jun 2)
+- [x] Pick a session length. (Web App, since May 29, done Jun 2)
 ```
 
 ## More than a journal

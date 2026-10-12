@@ -35,33 +35,44 @@ SKILL file.
 
 2. **Get the prepared buckets** (fetches the day's rows from Convex via
    `~/.pulse/.env`, dedups, applies the optional label map, buckets by project,
-   drops trivial noise):
+   drops trivial noise, folds scratch folders into the session's real project):
 
    ```bash
    python3 skills/digest/digest.py fetch --date <date> > /tmp/pulse-digest.json
    ```
 
    The JSON has: `date, timezone, notes_repo_dir, vault_subfolder, projects_dir,
-   hub_prefix, index_name, note_path, event_count, project_count, buckets:[{project,
-   events:[{ts,prompt,response,id}]}], row_ids`. Use `note_path`, `projects_dir`,
+   hub_prefix, index_name, note_path, event_count, deferred_today, project_count,
+   buckets:[{project, events:[{ts,prompt,response,id}]}], row_ids`. Use `note_path`, `projects_dir`,
    `hub_prefix`, and `index_name` from here; do not hand-build paths.
 
 3. **Quiet day.** If `event_count` is 0, do nothing: write no note, make no commit,
-   mark nothing. Report "no captured sessions for <date>" and stop.
+   mark nothing. Report "no captured sessions for <date>" and stop. If
+   `deferred_today` is true, the date is today and it is before noon, so the rows
+   wait for the next run: report "deferred: <date> has only just started" and
+   stop. (Pass `--include-today` to `fetch` to digest it anyway.)
 
 4. **Read the rules once** before writing any bullet:
+   - `references/note-structure.md` (the note layout, the typed bullets, and how
+     Open loops carry forward; lint enforces it)
    - `references/bullet-quality.md` (truth-check against the response, exact
      names/counts, don't bullet plumbing)
-   - `references/signals.md` (capture decisions, briefs, confusion→resolution,
-     failures-with-lessons)
+   - `references/signals.md` (spot the Decided, Rule, Learned and Bug items)
    - `references/humanizer.md` (the AI-writing tells to avoid; applied in step 5b).
      This is the only tone guide: plain English, no AI vocabulary, no em dashes.
 
-5. **Write the note at `note_path`** from the JSON, using this skill's
-   `templates/daily-note.md`
-   (create the month folder if needed). Fill `<DATE>` and `<DAY_HEADER>`
-   (`Weekday, Month D, YYYY`). Sections:
-   - **Summary**: 1 to 2 sentences naming the day's biggest outcomes.
+5. **Get the open loops to carry** from the previous note (and any items the user
+   ticked by hand in this date's note, which the overwrite would otherwise lose):
+
+   ```bash
+   python3 skills/digest/digest.py open-loops --note "<note_path>" > /tmp/pulse-loops.json
+   ```
+
+   **Then write the note at `note_path`** from both JSONs, using this skill's
+   `templates/daily-note.md`, exactly as `references/note-structure.md` describes
+   (create the month folder if needed). Fill `<DATE>`, `<DAY_HEADER>`
+   (`Weekday, Month D, YYYY`) and the frontmatter `projects:` list. Sections:
+   - **Summary**: 2 to 4 plain sentences on the whole day.
    - **Work log**: one block per bucket, in the JSON's order. Get each block's
      heading from `digest.py render-block` so the project label is linked correctly
      (a project becomes `### [[Project]]` only if its note exists in `projects_dir`,
@@ -72,16 +83,17 @@ SKILL file.
        --project "<project>" --projects-dir "<projects_dir>"
      ```
 
-     Write 2 to 6 outcome-focused bullets per project per bullet-quality.md. Verify
-     each bullet against the event `response` and its tool calls, not the prompt.
-   - **Decisions & signals**: pull signals across all buckets per signals.md. Omit
-     the heading if there are none.
-   - **Next**: 1 to 3 concrete open threads. Never list work the log shows finished.
-     Omit the heading if there are none.
+     Each block starts with `- Outcome:`, then result bullets, then any
+     `Decided:` / `Bug:` / `Rule:` / `Learned:` / `- [ ]` / `Refs:` bullets, in
+     the order note-structure.md gives. Write as many result bullets as the work
+     needs, per bullet-quality.md. Verify each bullet against the event `response`
+     and its tool calls, not the prompt.
+   - **Open loops**: every carried item (kept open, closed, or dropped), every new
+     `- [ ]` from the Work log, or `- None.`.
 
 5b. **Humanizer pass (readability, required).** Before saving, apply the
    `references/humanizer.md` checklist to every line you wrote (Summary, Work log,
-   Decisions & signals, Next). It is a checklist, not a script: rewrite in place so
+   Open loops). It is a checklist, not a script: rewrite in place so
    the note reads like a person wrote it. Strip the tells it lists (em dashes, AI
    vocabulary, rule-of-three filler, negative parallelisms, `-ing` pseudo-analysis,
    inline-header lists, vague attributions). Locally you may invoke the `humanizer`
@@ -114,7 +126,8 @@ SKILL file.
    Dispatch a fresh subagent with the Agent tool to check that. Give it exactly:
    - the note you wrote (read `note_path` and paste its full contents), and
    - the digest JSON `/tmp/pulse-digest.json` (the raw `buckets` with each event's
-     `prompt` and `response`).
+     `prompt` and `response`), and
+   - the open-loops JSON `/tmp/pulse-loops.json`.
 
    Tell the subagent its job is to return `PASS`, or `FAIL` with the exact gaps,
    judging only against the raw rows (it must not invent or assume):
@@ -127,6 +140,14 @@ SKILL file.
    - **Biggest win present**: the day's most important outcome (a passed test, a
      shipped artifact, a live result) appears, not only setup steps.
    - **No false "nothing left" claims**: if a thread was dropped, it is acknowledged.
+   - **Typed bullets are earned**: each `Decided:` was a real choice with the reason
+     the rows give, each `Bug:` cause and fix are shown in the rows (not guessed),
+     each `Rule:` was stated as a standing rule, and each `Outcome:` says what is
+     different now, not what was attempted.
+   - **Open loops are honest**: every `carry` item is present; one is closed or
+     dropped only when the rows show it (or it is stale per note-structure.md);
+     every `ticked_in_existing` item is still `- [x]`; no open item names work the
+     Work log shows finished.
 
    If the reviewer returns FAIL, fix the note for the exact gaps it named, then
    re-run step 8 (the gates) and re-review. Only proceed to step 9 on PASS. Do not
