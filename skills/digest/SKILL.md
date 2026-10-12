@@ -34,7 +34,7 @@ SKILL file.
    `today`), else `yesterday`.
 
 2. **Get the prepared buckets** (fetches the whole day's rows from Convex via
-   `~/.pulse/.env`, dedups, applies the optional label map, buckets by project,
+   `~/.pulse/.env`, applies the optional label map, buckets by project,
    drops trivial noise, folds scratch folders into the session's real project):
 
    ```bash
@@ -52,10 +52,12 @@ SKILL file.
 3. **Deferred or quiet day.** If `deferred_today` is true, the date is today and
    it is before noon, so the rows wait for the next run: report "deferred: <date>
    has only just started" and stop (`fetch --include-today` digests it anyway).
-   Otherwise, if `event_count` is 0, do nothing: write no note, make no commit,
-   mark nothing. Report "no captured sessions for <date>" and stop. If
-   `new_row_count` is 0, the day is already digested: report "nothing new for
-   <date>" and stop.
+   Otherwise, if `event_count` is 0, write no note and make no commit; if
+   `row_ids` is not empty (only trivial prompts), mark those rows processed.
+   Report "no captured sessions for <date>" and stop. If `new_row_count` is 0
+   and the note at `note_path` already exists, the day is already digested:
+   report "nothing new for <date>" and stop. (A missing note is rebuilt from the
+   rows even when nothing is new.)
 
 4. **Read the rules once** before writing any bullet:
    - `references/note-structure.md` (the note layout, the typed bullets, and how
@@ -173,12 +175,16 @@ SKILL file.
    python3 skills/digest/digest.py carry-forward --note "<note_path>"
    ```
 
-   If it prints `CARRIED`, lint the note it names (`digest.py lint "<that note>"`)
-   and commit it together with this one. In the notes repo: commit the note, push to its branch,
-   then verify the push landed (`HEAD` equals `origin/<branch>`). Only after that,
+   For every `CARRIED ... into <note>` line, lint that note
+   (`digest.py lint "<note>"`). If it fails, fix only what lint names in that
+   note, keeping the carried items, and re-lint.
+
+   In the notes repo, commit the note, the month hub and index from step 6, and
+   every note carry-forward changed. Push to its branch, then verify the push
+   landed (`HEAD` equals `origin/<branch>`). Only after that,
    `POST {CONVEX_URL}/mark-processed` with `{"ids": row_ids}`. If the push fails or
-   the SHAs differ, stop and do not mark: the rows stay unprocessed and the next run
-   regenerates the same note and retries.
+   the SHAs differ, stop and do not mark: the rows stay unprocessed. The nightly
+   routine only digests yesterday, so rerun this skill for that date to backfill it.
 
 ## Rules
 

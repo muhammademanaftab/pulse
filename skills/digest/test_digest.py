@@ -339,23 +339,43 @@ def test_since_age_wraps_the_year():
     assert dg.since_age("Feb 29", "2029-01-03") == 309
 
 
+def carry_forward(path: str) -> str:
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        assert dg.cmd_carry_forward(type("A", (), {"note": path})) == 0
+    return out.getvalue()
+
+
 def test_carry_forward_after_backfill():
-    later = GOOD.replace("- [ ] Add the preview button to mobile. (Web App, since Jun 2)", "- None.")
+    later = GOOD.replace("- Open: Add the preview button to mobile.\n", "").replace(
+        "- [ ] Add the preview button to mobile. (Web App, since Jun 2)", "- None.")
+    closed = "- [x] Write the release notes. (Web App, since May 20, done Jun 4)"
     root = vault_with({"2026-06-01": PREV, "2026-06-03": later,
-                       "2026-06-04": later.replace("- None.", "- [x] Pick a session length. (Web App, since "
-                                                   "May 29, done Jun 4)")})
-    with contextlib.redirect_stdout(io.StringIO()):
-        assert dg.cmd_carry_forward(type("A", (), {"note": note_path(root, "2026-06-01")})) == 0
-    loops = dg.h2_body(dg.read_note(note_path(root, "2026-06-04")), "## Open loops")
-    assert dg.loop_items(loops) == {"Pick a session length.": "x", "Add the preview button to mobile.": " ",
-                                    "Write the release notes.": " "}, loops
-    assert dg.read_note(note_path(root, "2026-06-03")) == later
-    with contextlib.redirect_stdout(io.StringIO()) as out:
-        assert dg.cmd_carry_forward(type("A", (), {"note": note_path(root, "2026-06-01")})) == 0
-    assert "nothing new" in out.getvalue()
-    with contextlib.redirect_stdout(io.StringIO()) as out:
-        assert dg.cmd_carry_forward(type("A", (), {"note": note_path(root, "2026-06-04")})) == 0
-    assert "no later note" in out.getvalue()
+                       "2026-06-04": later.replace("- None.", closed),
+                       "2026-06-05": later.replace("\n", "\r\n")})
+    assert "CARRIED" in carry_forward(note_path(root, "2026-06-01"))
+    items = lambda d: dg.loop_items(dg.loops_of(note_path(root, d)))
+    assert items("2026-06-03") == {"Add the preview button to mobile.": " ", "Write the release notes.": " "}
+    assert items("2026-06-04") == {"Write the release notes.": "x", "Add the preview button to mobile.": " "}
+    assert items("2026-06-05") == {"Add the preview button to mobile.": " "}
+    with open(note_path(root, "2026-06-05"), encoding="utf-8", newline="") as f:
+        raw = f.read()
+    assert raw.count("\n") == raw.count("\r\n") > 0
+    for d in ("2026-06-03", "2026-06-04", "2026-06-05"):
+        problems = lint(dg.read_note(note_path(root, d)), root=root, date=d)
+        assert problems == [], (d, problems)
+    assert "CARRIED" not in carry_forward(note_path(root, "2026-06-01"))
+    assert "no later note" in carry_forward(note_path(root, "2026-06-05"))
+
+
+def test_carry_forward_skips_legacy_notes_and_fenced_headings():
+    legacy = "---\nx: 1\n---\n\n# Old\n\n## Summary\n\nS.\n\n## Work log\n\n## Next\n\n- Ship\n"
+    fenced = GOOD.replace("- Refs: PR #41, `home.tsx`", "- Refs: PR #41\n```\n## Open loops\n```")
+    root = vault_with({"2026-06-01": PREV, "2026-06-02": legacy, "2026-06-03": fenced})
+    out = carry_forward(note_path(root, "2026-06-01"))
+    assert "2026-06-02.md predates Open loops, skipped" in out, out
+    assert dg.read_note(note_path(root, "2026-06-02")) == legacy
+    assert "Write the release notes." in dg.loops_of(note_path(root, "2026-06-03"))
+    assert "```\n## Open loops\n```" in dg.read_note(note_path(root, "2026-06-03"))
 
 
 def test_fetch_reads_whole_day_and_marks_only_new_rows():

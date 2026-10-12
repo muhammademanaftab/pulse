@@ -273,9 +273,13 @@ def is_noise(prompt: str) -> bool:
     return s == "" or s in TRIVIAL_PROMPTS
 
 
+def row_id(row: dict) -> str:
+    return row.get("_id") or row.get("id") or ""
+
+
 def normalize(row: dict) -> dict:
     return {
-        "id": row.get("_id") or row.get("id") or "",
+        "id": row_id(row),
         "ts": row.get("ts", 0),
         "timestamp": row.get("timestamp", ""),
         "prompt": row.get("message", "") or "",
@@ -327,8 +331,7 @@ def cmd_fetch(args) -> int:
     deferred = defer_today(date, datetime.now(tz), args.include_today)
     if deferred:
         rows = []
-    new_ids = [r.get("_id") or r.get("id") for r in rows
-               if not r.get("processed") and (r.get("_id") or r.get("id"))]
+    new_ids = [row_id(r) for r in rows if not r.get("processed") and row_id(r)]
     events = [e for e in (normalize(r) for r in rows) if not is_noise(e["prompt"])]
     events.sort(key=lambda e: (e.get("ts", 0), e.get("timestamp", "")))
     grouped: dict[str, list] = {}
@@ -485,6 +488,10 @@ def read_note(path: str) -> str:
     return open(path, encoding="utf-8", errors="replace").read()
 
 
+def loops_of(path: str) -> str:
+    return h2_body(strip_code_blocks(read_note(path)), "## Open loops") or ""
+
+
 def since_age(since: str, date: str) -> int | None:
     """Tags carry no year: take the latest matching date on or before the note
     (up to 3 years back, so Feb 29 finds a leap year)."""
@@ -533,34 +540,45 @@ def cmd_open_loops(args) -> int:
 
 # --- carry-forward (subcommand) --------------------------------------------
 
+def insert_loops(path: str, new: list[str]) -> bool:
+    """Append items to a note's Open loops (outside code fences), keeping its line endings."""
+    raw = open(path, encoding="utf-8", errors="replace", newline="").read()
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    lines, fenced, start = raw.splitlines(), False, None
+    for i, ln in enumerate(lines):
+        if ln.startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(r"^## Open loops[ \t]*$", ln):
+            start = i
+            break
+    if start is None:
+        return False
+    end = next((j for j in range(start + 1, len(lines)) if lines[j].startswith("## ")), len(lines))
+    kept = [ln for ln in lines[start + 1:end] if ln.strip() and ln.strip() != "- None."]
+    lines[start + 1:end] = [""] + kept + new + ([""] if end < len(lines) else [])
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(nl.join(lines) + nl)
+    return True
+
+
 def cmd_carry_forward(args) -> int:
     date = note_date(args.note)
     if not date or not os.path.isfile(args.note):
         print(f"ERROR: --note must be an existing dated note, got {args.note!r}", file=sys.stderr)
         return 1
     later = [n for n in dated_notes(args.note) if note_date(n) > date]
+    pending = [ln for ln in loops_of(args.note).splitlines()
+               if (t := TASK_RE.match(ln)) and t.group(1) == " "]
+    for note in later:
+        if h2_body(strip_code_blocks(read_note(note)), "## Open loops") is None:
+            print(f"OK {os.path.basename(note)} predates Open loops, skipped")
+            continue
+        present = loop_items(loops_of(note))
+        pending = [ln for ln in pending if loop_text(ln) not in present]
+        if pending and insert_loops(note, pending):
+            print(f"CARRIED {len(pending)} item(s) into {note}")
     if not later:
         print("OK no later note")
-        return 0
-    seen = set().union(*(loop_items(h2_body(strip_code_blocks(read_note(n)), "## Open loops") or "")
-                         for n in later))
-    loops = h2_body(strip_code_blocks(read_note(args.note)), "## Open loops") or ""
-    new = [ln for ln in loops.splitlines()
-           if (t := TASK_RE.match(ln)) and t.group(1) == " " and loop_text(ln) not in seen]
-    if not new:
-        print(f"OK nothing new for {os.path.basename(later[-1])}")
-        return 0
-    text = read_note(later[-1])
-    m = re.search(r"^## Open loops[ \t]*\n", text, re.M)
-    if not m:
-        print(f"ERROR: {later[-1]} has no ## Open loops", file=sys.stderr)
-        return 1
-    body = h2_body(text, "## Open loops")
-    kept = [ln for ln in body.splitlines() if ln.strip() and ln.strip() != "- None."]
-    text = text[:m.end()] + "\n" + "\n".join(kept + new) + "\n\n" + text[m.end() + len(body):].lstrip("\n")
-    with open(later[-1], "w", encoding="utf-8", newline="\n") as f:
-        f.write(text.rstrip("\n") + "\n")
-    print(f"CARRIED {len(new)} item(s) into {later[-1]}")
     return 0
 
 
@@ -593,8 +611,7 @@ def lint_structure(text: str, path: str, closed: list[str] = ()) -> list[str]:
     present = loop_items(loops)
     open_loops = open_items(loops)
     prev = previous_note(path)
-    prev_loops = h2_body(strip_code_blocks(read_note(prev)), "## Open loops") if prev else None
-    carried = open_items(prev_loops or "")
+    carried = open_items(loops_of(prev)) if prev else set()
 
     blocks: list[tuple[str, str, list[str]]] = []
     for line in work.splitlines():

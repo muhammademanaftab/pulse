@@ -78,4 +78,5 @@ The notes repo must exist on GitHub for the routine to push to it.
 ## Rule every routine follows
 
 Stop on any gate or reviewer failure, and never mark rows processed until the push is
-verified, so the next run retries cleanly.
+verified. A failed day's rows stay unprocessed; run the digest for that date by hand
+to backfill it.

@@ -198,7 +198,9 @@ forgotten. Only `- [ ]` and `- [x]` lines count; anything else fails lint.
    item `(<Project>, since <Mon D of that note>)`. Leave out ones done today.
 7. If Open loops has no items at all, write `- None.` (lint: never leave it empty).
 
-Closed (`[x]`) items appear only on the day they close.
+Closed (`[x]`) items appear only on the day they close. When an older day is
+backfilled, `digest.py carry-forward` copies its new open items into every later
+note that does not have them yet.
 
 Only real follow-ups belong here: something a person still has to do or decide.
 Short-lived states ("render in progress") are not open items; describe them in the
