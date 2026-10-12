@@ -54,7 +54,7 @@ def read_config(path: str) -> dict:
     if not os.path.isfile(path):
         return cfg
     try:
-        for line in open(path):
+        for line in open(path, encoding="utf-8"):
             line = line.split("#", 1)[0].strip()
             if not line or ":" not in line:
                 continue
@@ -79,7 +79,7 @@ def load_convex_env() -> tuple[str | None, str | None]:
         return url, token
     if os.path.isfile(ENV_FILE):
         try:
-            for line in open(ENV_FILE):
+            for line in open(ENV_FILE, encoding="utf-8"):
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
@@ -101,7 +101,10 @@ def get_tz(cfg: dict):
             from zoneinfo import ZoneInfo
             return ZoneInfo(name)
         except Exception:
-            pass
+            # Windows Python ships no tz database; without this the day window
+            # would silently shift to UTC.
+            print(f"warning: unknown timezone {name!r}, using UTC "
+                  "(on Windows: pip install tzdata)", file=sys.stderr)
     return timezone.utc
 
 
@@ -127,7 +130,7 @@ def load_labels(path: str) -> dict:
         return result
     section, item = None, None
     try:
-        for raw in open(path):
+        for raw in open(path, encoding="utf-8"):
             line = raw.split("#", 1)[0].rstrip()
             if not line.strip():
                 continue
@@ -165,6 +168,7 @@ def canonical_project(event: dict, labels: dict) -> str:
     if project and project in mappings:
         return mappings[project]
     if cwd:
+        cwd = cwd.replace("\\", "/")  # Windows cwds; patterns are written with /
         base = os.path.basename(cwd.rstrip("/"))
         if base in mappings:
             return mappings[base]
@@ -318,7 +322,7 @@ def cmd_month_links(args) -> int:
 
     if not os.path.isfile(hub_path):
         os.makedirs(os.path.dirname(hub_path), exist_ok=True)
-        open(hub_path, "w", encoding="utf-8").write(
+        open(hub_path, "w", encoding="utf-8", newline="\n").write(
             f"---\ntype: month-hub\nmonth: \"{ym}\"\ntags: [pulse, hub]\n---\n\n"
             f"# {args.hub_prefix} notes, {mname}\n\nPart of [[{index_stem}]].\n\n## Days\n")
         print(f"CREATED hub {hub_path}")
@@ -326,19 +330,19 @@ def cmd_month_links(args) -> int:
     day_link = f"- [[{sub}/{ym}/{args.date}|{d.strftime('%b')} {d.day}]]"
     text, changed = _upsert_list(open(hub_path, encoding="utf-8").read(), "## Days", day_link)
     if changed:
-        open(hub_path, "w", encoding="utf-8").write(text)
+        open(hub_path, "w", encoding="utf-8", newline="\n").write(text)
         print(f"LINKED {args.date} in {os.path.basename(hub_path)}")
 
     if not os.path.isfile(index_path):
         os.makedirs(os.path.dirname(index_path), exist_ok=True)
-        open(index_path, "w", encoding="utf-8").write(
+        open(index_path, "w", encoding="utf-8", newline="\n").write(
             f"---\ntype: index\ntags: [pulse, index]\n---\n\n# {args.hub_prefix} notes\n\n"
             f"Auto-maintained index of monthly note hubs.\n\n## Months\n")
         print(f"CREATED index {index_path}")
     text, changed = _upsert_list(open(index_path, encoding="utf-8").read(),
                                  "## Months", f"- [[{hub_name}|{mname}]]", reverse=True)
     if changed:
-        open(index_path, "w", encoding="utf-8").write(text)
+        open(index_path, "w", encoding="utf-8", newline="\n").write(text)
         print(f"LINKED {hub_name} in {os.path.basename(index_path)}")
     print("OK")
     return 0
@@ -404,7 +408,7 @@ def cmd_check_links(args) -> int:
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in filenames:
             if fn.endswith(".md"):
-                rel = os.path.relpath(os.path.join(dirpath, fn), vault)
+                rel = os.path.relpath(os.path.join(dirpath, fn), vault).replace("\\", "/")
                 files.append(rel)
                 stem_to_rel.setdefault(os.path.splitext(fn)[0], rel)
 
@@ -444,6 +448,9 @@ def cmd_check_links(args) -> int:
 # --- dispatch ---------------------------------------------------------------
 
 def main() -> int:
+    # Piped stdio uses the console codepage on Windows; JSON and notes are UTF-8.
+    for stream in (sys.stdin, sys.stdout):
+        stream.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description="Pulse digester (L3).")
     sub = p.add_subparsers(dest="cmd", required=True)
 

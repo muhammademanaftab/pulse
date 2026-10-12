@@ -10,12 +10,61 @@ permissions:
 
 jobs:
   scripts:
-    runs-on: ubuntu-latest
+    # Windows catches POSIX-only assumptions: cp1252 default encoding,
+    # backslash paths, npm.cmd shims (see #15).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Fail on any text-mode open() without an explicit encoding (PEP 597).
+      PYTHONWARNDEFAULTENCODING: "1"
+      PYTHONWARNINGS: error::EncodingWarning
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+
+      - name: python3 resolves to the setup-python interpreter
+        run: python3 -c "import sys; print(sys.executable, sys.version)"
+
+      - name: Setup helper launches npm (resolves npm.cmd on Windows)
+        run: |
+          python3 -c "
+          import importlib.util as u
+          s = u.spec_from_file_location('install', 'skills/setup/install.py')
+          m = u.module_from_spec(s); s.loader.exec_module(m)
+          code, out, err = m.run(['npm', '--version'])
+          assert code == 0 and out, (code, out, err)
+          print('npm', out)
+          "
+
+      - name: Installed hook command runs through bash
+        run: |
+          python3 -c "
+          import importlib.util as u, os, shutil, subprocess, tempfile
+          s = u.spec_from_file_location('install', 'skills/setup/install.py')
+          m = u.module_from_spec(s); s.loader.exec_module(m)
+          cmd = m.HOOK_COMMAND.removesuffix(' || true')
+          assert os.name != 'nt' or not cmd.startswith('python3'), cmd
+          # Copy into a folder with a space to exercise the quoting.
+          src = os.path.join(tempfile.mkdtemp(), 'a b', 'pulse-capture.py')
+          os.makedirs(os.path.dirname(src)); shutil.copy('skills/setup/capture.py', src)
+          src = src.replace(os.sep, '/')
+          # Windows command quotes the path; POSIX uses ~, which bash expands safely.
+          cmd = cmd.replace(m.HOOK_DEST.replace(os.sep, '/'), src)
+          cmd = cmd.replace('~/.claude/hooks/pulse-capture.py', f'\"{src}\"')
+          home = tempfile.mkdtemp()
+          r = subprocess.run([shutil.which('bash') or 'bash', '-c', cmd], input='{}', text=True, encoding='utf-8',
+                             env={**os.environ, 'HOME': home, 'USERPROFILE': home})
+          assert r.returncode == 0, (cmd, r.returncode)
+          print('ok:', cmd)
+          "
 
       - name: Compile all scripts
         run: python3 -m py_compile skills/setup/*.py skills/digest/*.py skills/synth/*.py
@@ -34,6 +83,13 @@ jobs:
           echo '# Demo' > /tmp/v/Pulse/Projects/Demo.md
           out=$(printf -- '- x' | python3 skills/digest/digest.py render-block --project Demo --projects-dir /tmp/v/Pulse/Projects)
           echo "$out" | grep -q '### \[\[Demo\]\]'
+
+      - name: Non-ASCII survives piped stdio on a cp1252 console
+        run: |
+          set -e
+          mkdir -p /tmp/u/Pulse/Projects
+          out=$(printf -- '- fixed \xe2\x80\x9cdone\xe2\x80\x9d' | PYTHONIOENCODING=cp1252 python3 skills/digest/digest.py render-block --project Demo --projects-dir /tmp/u/Pulse/Projects)
+          echo "$out" | grep -q "$(printf 'fixed \xe2\x80\x9cdone\xe2\x80\x9d')"
 
       - name: Month-hub + index wiring is idempotent and graph is whole
         run: |
@@ -63,9 +119,9 @@ jobs:
           printf -- '---\ndate: "2026-06-10"\ntags: [pulse, daily]\n---\n\n# Wed, June 10, 2026\n\n## Summary\n\nMore on the web app.\n\n## Work log\n\n### **Web App**\n\n- Added preview button\n' > /tmp/n/Pulse/Daily/2026-06/2026-06-10.md
           printf -- '# Web App\n' > "/tmp/n/Pulse/Projects/Web App.md"
           python3 skills/synth/synth.py collect --week-end 2026-06-14 > /tmp/week.json
-          python3 -c "import json;d=json.load(open('/tmp/week.json'));assert d['note_count']==2,d;assert d['week_start']=='2026-06-08',d;assert d['weekly_hub_prefix']=='Pulse Weekly',d"
+          python3 -c "import json,sys;d=json.load(open(sys.argv[1],encoding='utf-8'));assert d['note_count']==2,d;assert d['week_start']=='2026-06-08',d;assert d['weekly_hub_prefix']=='Pulse Weekly',d" /tmp/week.json
           python3 skills/synth/synth.py buckets /tmp/week.json > /tmp/buckets.json
-          python3 -c "import json;b=json.load(open('/tmp/buckets.json'))['buckets'];assert b['Web App']['rendered']=='[[Web App]]',b;assert b['Web App']['days']==['2026-06-08','2026-06-10'],b;assert b['Notifications']['rendered']=='**Notifications**',b"
+          python3 -c "import json,sys;b=json.load(open(sys.argv[1],encoding='utf-8'))['buckets'];assert b['Web App']['rendered']=='[[Web App]]',b;assert b['Web App']['days']==['2026-06-08','2026-06-10'],b;assert b['Notifications']['rendered']=='**Notifications**',b" /tmp/buckets.json
 
       - name: Synth week-links is idempotent and the graph stays whole
         run: |

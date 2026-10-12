@@ -21,9 +21,10 @@ spec.loader.exec_module(cap)
 
 def write_transcript(entries: list[dict]) -> str:
     fd, path = tempfile.mkstemp(suffix=".jsonl")
-    with os.fdopen(fd, "w") as f:
+    # Raw UTF-8, not \u escapes, matching what Claude Code writes.
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         for e in entries:
-            f.write(json.dumps(e) + "\n")
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
     return path
 
 
@@ -109,6 +110,31 @@ def test_skips_pending_background_work():
     assert prompt is None and response is None and model is None, (prompt, response, model)
 
 
+def test_non_ascii_transcript_on_non_utf8_locale():
+    # Windows defaults open() to the system codepage (e.g. cp1252), which
+    # can't decode em dashes or curly quotes. Simulate that default and make
+    # sure the parser still reads the transcript as UTF-8.
+    path = write_transcript([
+        user("why \u201cquoted\u201d?"),
+        assistant([{"type": "text", "text": "because \u2014 reasons \u2713"}]),
+    ])
+    real_open = open
+
+    def cp1252_default_open(file, mode="r", *a, **kw):
+        if "b" not in mode and "encoding" not in kw and not a:
+            kw["encoding"] = "cp1252"
+        return real_open(file, mode, *a, **kw)
+
+    cap.open = cp1252_default_open
+    try:
+        prompt, response, _ = cap.extract_from_transcript(path)
+    finally:
+        del cap.open
+        os.unlink(path)
+    assert prompt == "why \u201cquoted\u201d?", prompt
+    assert "\u2014 reasons \u2713" in response, response
+
+
 def test_empty_transcript():
     path = write_transcript([])
     result = cap.extract_from_transcript(path)
@@ -152,7 +178,7 @@ def test_redaction_prefixed_env_vars():
 def test_load_env_refuses_http():
     env_dir = tempfile.mkdtemp()
     env_path = os.path.join(env_dir, ".env")
-    with open(env_path, "w") as f:
+    with open(env_path, "w", encoding="utf-8") as f:
         f.write("CONVEX_URL=http://evil.example\nCONVEX_TOKEN=abc123abc123\n")
     old_env, old_log = cap.ENV_FILE, cap.LOG_FILE
     cap.ENV_FILE = env_path
