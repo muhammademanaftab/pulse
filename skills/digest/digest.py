@@ -449,6 +449,10 @@ def loop_items(body: str) -> dict[str, str]:
             for ln in body.splitlines() if TASK_RE.match(ln)}
 
 
+def open_items(body: str) -> set[str]:
+    return {t for t, state in loop_items(body).items() if state == " "}
+
+
 def note_date(path: str) -> str | None:
     stem = os.path.splitext(os.path.basename(path))[0]
     return stem if DATE_FILE_RE.match(stem + ".md") else None
@@ -496,7 +500,7 @@ def cmd_open_loops(args) -> int:
     prev = previous_note(args.note)
     out = {"previous_note": prev, "carry": [], "legacy_next": [], "closed_in_existing": []}
     if prev:
-        text = read_note(prev)
+        text = strip_code_blocks(read_note(prev))
         loops = h2_body(text, "## Open loops")
         if loops is None:
             out["legacy_next"] = [ln[2:].strip() for ln in (h2_body(text, "## Next") or "").splitlines()
@@ -545,10 +549,10 @@ def lint_structure(text: str, path: str, closed: list[str] = ()) -> list[str]:
     work = h2_body(text, "## Work log") or ""
     loops = h2_body(text, "## Open loops") or ""
     present = loop_items(loops)
-    open_loops = {t for t, state in present.items() if state == " "}
+    open_loops = open_items(loops)
     prev = previous_note(path)
     prev_loops = h2_body(strip_code_blocks(read_note(prev)), "## Open loops") if prev else None
-    carried = {t for t, state in loop_items(prev_loops or "").items() if state == " "}
+    carried = open_items(prev_loops or "")
 
     blocks: list[tuple[str, str, list[str]]] = []
     for line in work.splitlines():

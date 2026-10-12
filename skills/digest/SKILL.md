@@ -92,8 +92,9 @@ SKILL file.
      the order note-structure.md gives. Write as many result bullets as the work
      needs, per bullet-quality.md. Verify each bullet against the event `response`
      and its tool calls, not the prompt.
-   - **Open loops**: every carried item (kept open, closed, or dropped), an open
-     item for every `Open:` bullet in the Work log, or `- None.`.
+   - **Open loops**: every carried item (kept open, closed, or dropped), every
+     `closed_in_existing` line, the open `legacy_next` items, an open item for
+     every `Open:` bullet in the Work log, or `- None.`.
 
 5b. **Humanizer pass (readability, required).** Before saving, apply the
    `references/humanizer.md` checklist to every line you wrote (Summary, Work log,

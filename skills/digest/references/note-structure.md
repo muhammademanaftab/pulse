@@ -190,7 +190,8 @@ forgotten. Only `- [ ]` and `- [x]` lines count; anything else fails lint.
 4. **Closed stays closed.** Much of what gets done never shows up in a session.
    Ticking `- [x]` in the latest note's Open loops is enough: it is not carried
    again. `closed_in_existing` holds the full lines already closed in this note;
-   write each one back as it is (lint checks it stays closed). If a tag has no
+   write each one back as it is (lint checks it stays closed), and do not write
+   it as `Open:` in the Work log, even if the rows still show it unfinished. If a tag has no
    `done` or `dropped` yet, add `done <Mon D>` with this note's date.
 5. Add an open item for every `Open:` bullet in today's Work log.
 6. For each `legacy_next` item the Work log does not show done today, add an open
