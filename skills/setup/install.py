@@ -25,7 +25,13 @@ CLAUDE_DIR = os.path.expanduser("~/.claude")
 HOOKS_DIR = os.path.join(CLAUDE_DIR, "hooks")
 HOOK_DEST = os.path.join(HOOKS_DIR, "pulse-capture.py")
 SETTINGS = os.path.join(CLAUDE_DIR, "settings.json")
-HOOK_COMMAND = 'python3 ~/.claude/hooks/pulse-capture.py || true'
+if os.name == "nt":
+    # python3 can be the Microsoft Store alias stub, which `|| true` would hide.
+    # Claude Code runs hooks through Git Bash, so forward slashes and quotes work.
+    _py, _hook = (p.replace("\\", "/") for p in (sys.executable, HOOK_DEST))
+    HOOK_COMMAND = f'"{_py}" "{_hook}" || true'
+else:
+    HOOK_COMMAND = 'python3 ~/.claude/hooks/pulse-capture.py || true'
 
 
 def die(msg: str) -> None:
@@ -50,12 +56,14 @@ def run(args: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[int
 
 def check_prereqs() -> None:
     print("1. Checking prerequisites...")
-    for cmd, why in [("python3", "this script"), ("node", "the Convex CLI"),
+    # On Windows the hook runs with this interpreter (sys.executable), not python3.
+    py = [] if os.name == "nt" else [("python3", "this script")]
+    for cmd, why in py + [("node", "the Convex CLI"),
                      ("npx", "the Convex CLI"), ("git", "your notes repo"),
                      ("curl", "the verification step")]:
         if not have(cmd):
             die(f"'{cmd}' not found (needed for {why}). Install it and re-run.")
-    print("   ok: python3, node, npx, git, curl")
+    print(f"   ok: {'python' if os.name == 'nt' else 'python3'}, node, npx, git, curl")
 
 
 def ensure_backend_deps() -> None:
@@ -112,7 +120,7 @@ def write_env(url: str, token: str) -> None:
         os.chmod(ENV_FILE, 0o600)  # re-tighten perms even when content is current
         print(f"4. Credentials already current at {ENV_FILE}")
         return
-    with open(ENV_FILE, "w", encoding="utf-8") as f:
+    with open(ENV_FILE, "w", encoding="utf-8", newline="\n") as f:
         f.write(content)
     os.chmod(ENV_FILE, 0o600)
     print(f"4. Wrote credentials to {ENV_FILE}")
@@ -134,17 +142,22 @@ def install_hook() -> None:
 
     hooks = settings.setdefault("hooks", {})
     stop = hooks.setdefault("Stop", [])
-    already = any(
-        "pulse-capture.py" in h.get("command", "")
-        for group in stop if isinstance(group, dict)
-        for h in group.get("hooks", []) if isinstance(h, dict)
-    )
-    if already:
+    ours = [h for group in stop if isinstance(group, dict)
+            for h in group.get("hooks", [])
+            if isinstance(h, dict) and "pulse-capture.py" in h.get("command", "")]
+    if os.name == "nt" and any(h.get("command") != HOOK_COMMAND for h in ours):
+        # Repair Windows hooks installed with the bare python3 command.
+        for h in ours:
+            h["command"] = HOOK_COMMAND
+        with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(settings, f, indent=2)
+        print(f"   updated the Stop hook command in {SETTINGS} (backup at settings.json.bak)")
+    elif ours:
         print("   hook already present in settings.json (no change)")
     else:
         stop.append({"matcher": "", "hooks": [
             {"type": "command", "command": HOOK_COMMAND, "timeout": 15000}]})
-        with open(SETTINGS, "w", encoding="utf-8") as f:
+        with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
             json.dump(settings, f, indent=2)
         print(f"   added the Stop hook to {SETTINGS} (backup at settings.json.bak)")
 
@@ -192,6 +205,8 @@ def detect_timezone() -> str:
             return path.split("zoneinfo/", 1)[1]
     except Exception:
         pass
+    print("   could not detect your timezone, using UTC; re-run with "
+          "--timezone Area/City (e.g. Europe/London) to fix", file=sys.stderr)
     return "UTC"
 
 
@@ -230,7 +245,7 @@ def cmd_notes(args) -> int:
             print(repo)
             return 0
         shutil.copy(CONFIG_FILE, CONFIG_FILE + ".bak")
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8", newline="\n") as f:
         f.write(content)
     print(f"   wrote {CONFIG_FILE} (notes_repo={repo}, timezone={tz})")
     print(repo)

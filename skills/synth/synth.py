@@ -78,7 +78,10 @@ def get_tz(cfg: dict):
             from zoneinfo import ZoneInfo
             return ZoneInfo(name)
         except Exception:
-            pass
+            # Windows Python ships no tz database; without this the day window
+            # would silently shift to UTC.
+            print(f"warning: unknown timezone {name!r}, using UTC "
+                  "(on Windows: pip install tzdata)", file=sys.stderr)
     return timezone.utc
 
 
@@ -290,26 +293,26 @@ def cmd_week_links(args) -> int:
 
     if not os.path.isfile(hub_path):
         os.makedirs(os.path.dirname(hub_path), exist_ok=True)
-        open(hub_path, "w", encoding="utf-8").write(
+        open(hub_path, "w", encoding="utf-8", newline="\n").write(
             f"---\ntype: weekly-hub\nmonth: \"{ym}\"\ntags: [pulse, hub]\n---\n\n"
             f"# {args.hub_prefix} notes, {mname}\n\nPart of [[{index_stem}]].\n\n## Weeks\n")
         print(f"CREATED hub {hub_path}")
     week_link = f"- [[{sub}/{ym}/{args.date}|{label}]]"
     text, changed = _upsert_list(open(hub_path, encoding="utf-8").read(), "## Weeks", week_link)
     if changed:
-        open(hub_path, "w", encoding="utf-8").write(text)
+        open(hub_path, "w", encoding="utf-8", newline="\n").write(text)
         print(f"LINKED {args.date} in {os.path.basename(hub_path)}")
 
     if not os.path.isfile(index_path):
         os.makedirs(os.path.dirname(index_path), exist_ok=True)
-        open(index_path, "w", encoding="utf-8").write(
+        open(index_path, "w", encoding="utf-8", newline="\n").write(
             f"---\ntype: index\ntags: [pulse, index]\n---\n\n# {args.hub_prefix} notes\n\n"
             f"Auto-maintained index of weekly note hubs.\n\n## Months\n")
         print(f"CREATED index {index_path}")
     text, changed = _upsert_list(open(index_path, encoding="utf-8").read(),
                                  "## Months", f"- [[{hub_name}|{mname}]]", reverse=True)
     if changed:
-        open(index_path, "w", encoding="utf-8").write(text)
+        open(index_path, "w", encoding="utf-8", newline="\n").write(text)
         print(f"LINKED {hub_name} in {os.path.basename(index_path)}")
     print("OK")
     return 0
