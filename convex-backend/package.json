@@ -1,6 +1,6 @@
 {
   "name": "pulse-convex-backend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Pulse capture backend: a Convex deployment that stores Claude Code prompts. Deployed per-user by skills/setup/install.py.",

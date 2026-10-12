@@ -33,8 +33,8 @@ SKILL file.
 1. **Resolve the date.** Use the argument if given (`YYYY-MM-DD`, `yesterday`, or
    `today`), else `yesterday`.
 
-2. **Get the prepared buckets** (fetches the day's rows from Convex via
-   `~/.pulse/.env`, dedups, applies the optional label map, buckets by project,
+2. **Get the prepared buckets** (fetches the whole day's rows from Convex via
+   `~/.pulse/.env`, applies the optional label map, buckets by project,
    drops trivial noise, folds scratch folders into the session's real project):
 
    ```bash
@@ -42,15 +42,22 @@ SKILL file.
    ```
 
    The JSON has: `date, timezone, notes_repo_dir, vault_subfolder, projects_dir,
-   hub_prefix, index_name, note_path, event_count, deferred_today, project_count,
-   buckets:[{project, events:[{ts,timestamp,prompt,response,id}]}], row_ids`. Use `note_path`, `projects_dir`,
-   `hub_prefix`, and `index_name` from here; do not hand-build paths.
+   hub_prefix, index_name, note_path, event_count, new_row_count, deferred_today,
+   project_count, buckets:[{project, events:[{ts,timestamp,prompt,response,id}]}],
+   row_ids`. The buckets hold every row of the day, so a regenerated note keeps
+   work digested earlier; `row_ids` holds only the rows not yet processed. Use
+   `note_path`, `projects_dir`, `hub_prefix`, and `index_name` from here; do not
+   hand-build paths.
 
 3. **Deferred or quiet day.** If `deferred_today` is true, the date is today and
    it is before noon, so the rows wait for the next run: report "deferred: <date>
    has only just started" and stop (`fetch --include-today` digests it anyway).
-   Otherwise, if `event_count` is 0, do nothing: write no note, make no commit,
-   mark nothing. Report "no captured sessions for <date>" and stop.
+   Otherwise, if `event_count` is 0, write no note and make no commit; if
+   `row_ids` is not empty (only trivial prompts), mark those rows processed.
+   Report "no captured sessions for <date>" and stop. If `new_row_count` is 0
+   and the note at `note_path` already exists, the day is already digested:
+   report "nothing new for <date>" and stop. (A missing note is rebuilt from the
+   rows even when nothing is new.)
 
 4. **Read the rules once** before writing any bullet:
    - `references/note-structure.md` (the note layout, the typed bullets, and how
@@ -161,11 +168,23 @@ SKILL file.
    re-run step 7 (the gates) and re-review. Only proceed to step 8 on PASS. Do not
    push or mark a note the reviewer has not passed.
 
-8. **Commit, push, mark.** In the notes repo: commit the note, push to its branch,
-   then verify the push landed (`HEAD` equals `origin/<branch>`). Only after that,
+8. **Carry forward, commit, push, mark.** Copy this note's new open items into the
+   newest daily note when this run is a backfill (it does nothing otherwise):
+
+   ```bash
+   python3 skills/digest/digest.py carry-forward --note "<note_path>"
+   ```
+
+   For every `CARRIED ... into <note>` line, lint that note
+   (`digest.py lint "<note>"`). If it fails, fix only what lint names in that
+   note, keeping the carried items, and re-lint.
+
+   In the notes repo, commit the note, the month hub and index from step 6, and
+   every note carry-forward changed. Push to its branch, then verify the push
+   landed (`HEAD` equals `origin/<branch>`). Only after that,
    `POST {CONVEX_URL}/mark-processed` with `{"ids": row_ids}`. If the push fails or
-   the SHAs differ, stop and do not mark: the rows stay unprocessed and the next run
-   regenerates the same note and retries.
+   the SHAs differ, stop and do not mark: the rows stay unprocessed. The nightly
+   routine only digests yesterday, so rerun this skill for that date to backfill it.
 
 ## Rules
 

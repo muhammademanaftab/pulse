@@ -2,10 +2,11 @@
 """Pulse digester (L3): the one script the digest skill calls.
 
 Subcommands (run `digest.py <cmd> -h` for each):
-  fetch         pull a day's rows from Convex, bucket by project, print JSON
+  fetch         pull a whole day's rows from Convex, bucket by project, print JSON
   render-block  render one Work-log project heading + bullets (correct linking)
   month-links   wire the dated note into its month hub + folder index (idempotent)
   open-loops    list the previous note's open items to carry into this one
+  carry-forward after a backfill, copy its new open items into the newest note
   lint          gate: note layout, typed bullets, open loops carried, no em dash
   coverage      gate: every digest bucket has a block in the note
   check-links   gate: no dead [[links]] and no orphan notes
@@ -272,9 +273,13 @@ def is_noise(prompt: str) -> bool:
     return s == "" or s in TRIVIAL_PROMPTS
 
 
+def row_id(row: dict) -> str:
+    return row.get("_id") or row.get("id") or ""
+
+
 def normalize(row: dict) -> dict:
     return {
-        "id": row.get("_id") or row.get("id") or "",
+        "id": row_id(row),
         "ts": row.get("ts", 0),
         "timestamp": row.get("timestamp", ""),
         "prompt": row.get("message", "") or "",
@@ -306,7 +311,7 @@ def cmd_fetch(args) -> int:
 
     start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=tz)
     start_ms, end_ms = int(start.timestamp() * 1000), int((start + timedelta(days=1)).timestamp() * 1000)
-    endpoint = f"{url.rstrip('/')}/unprocessed?startTs={start_ms}&endTs={end_ms}"
+    endpoint = f"{url.rstrip('/')}/all?startTs={start_ms}&endTs={end_ms}"
     try:
         with urlopen(Request(endpoint, headers={"Authorization": f"Bearer {token}"}), timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -326,6 +331,7 @@ def cmd_fetch(args) -> int:
     deferred = defer_today(date, datetime.now(tz), args.include_today)
     if deferred:
         rows = []
+    new_ids = [row_id(r) for r in rows if not r.get("processed") and row_id(r)]
     events = [e for e in (normalize(r) for r in rows) if not is_noise(e["prompt"])]
     events.sort(key=lambda e: (e.get("ts", 0), e.get("timestamp", "")))
     grouped: dict[str, list] = {}
@@ -345,12 +351,13 @@ def cmd_fetch(args) -> int:
         "index_name": index_name,
         "note_path": os.path.join(note_dir, f"{date}.md") if notes_repo else "",
         "event_count": len(events),
+        "new_row_count": len(new_ids),
         "deferred_today": deferred,
         "project_count": len(grouped),
         "buckets": [{"project": p, "events": evs} for p, evs in grouped.items()],
-        # All fetched rows get marked processed after a verified push, including
-        # noise we filtered, so trivial rows do not pile up unprocessed forever.
-        "row_ids": [r.get("_id") or r.get("id") for r in rows if (r.get("_id") or r.get("id"))],
+        # The note is built from the whole day; only rows not yet processed get
+        # marked, including noise, so trivial rows do not pile up forever.
+        "row_ids": new_ids,
     }
     print(json.dumps(out, ensure_ascii=False))
     return 0
@@ -458,22 +465,31 @@ def note_date(path: str) -> str | None:
     return stem if DATE_FILE_RE.match(stem + ".md") else None
 
 
-def previous_note(path: str) -> str | None:
-    date = note_date(path)
+def dated_notes(path: str) -> list[str]:
+    """Every dated note in the YYYY-MM folders next to this note's month, by date."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(path)))
-    if not date or not os.path.isdir(root):
-        return None
-    earlier = []
+    if not os.path.isdir(root):
+        return []
+    notes = []
     for month in os.listdir(root):
         mdir = os.path.join(root, month)
         if MONTH_DIR_RE.match(month) and os.path.isdir(mdir):
-            earlier += [os.path.join(mdir, f) for f in os.listdir(mdir)
-                        if DATE_FILE_RE.match(f) and f[:-3] < date]
-    return max(earlier, key=os.path.basename) if earlier else None
+            notes += [os.path.join(mdir, f) for f in os.listdir(mdir) if DATE_FILE_RE.match(f)]
+    return sorted(notes, key=os.path.basename)
+
+
+def previous_note(path: str) -> str | None:
+    date = note_date(path)
+    earlier = [n for n in dated_notes(path) if note_date(n) < date] if date else []
+    return earlier[-1] if earlier else None
 
 
 def read_note(path: str) -> str:
     return open(path, encoding="utf-8", errors="replace").read()
+
+
+def loops_of(path: str) -> str:
+    return h2_body(strip_code_blocks(read_note(path)), "## Open loops") or ""
 
 
 def since_age(since: str, date: str) -> int | None:
@@ -522,6 +538,50 @@ def cmd_open_loops(args) -> int:
     return 0
 
 
+# --- carry-forward (subcommand) --------------------------------------------
+
+def insert_loops(path: str, new: list[str]) -> bool:
+    """Append items to a note's Open loops (outside code fences), keeping its line endings."""
+    raw = open(path, encoding="utf-8", errors="replace", newline="").read()
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    lines, fenced, start = raw.splitlines(), False, None
+    for i, ln in enumerate(lines):
+        if ln.startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(r"^## Open loops[ \t]*$", ln):
+            start = i
+            break
+    if start is None:
+        return False
+    end = next((j for j in range(start + 1, len(lines)) if lines[j].startswith("## ")), len(lines))
+    kept = [ln for ln in lines[start + 1:end] if ln.strip() and ln.strip() != "- None."]
+    lines[start + 1:end] = [""] + kept + new + ([""] if end < len(lines) else [])
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(nl.join(lines) + nl)
+    return True
+
+
+def cmd_carry_forward(args) -> int:
+    date = note_date(args.note)
+    if not date or not os.path.isfile(args.note):
+        print(f"ERROR: --note must be an existing dated note, got {args.note!r}", file=sys.stderr)
+        return 1
+    later = [n for n in dated_notes(args.note) if note_date(n) > date]
+    pending = [ln for ln in loops_of(args.note).splitlines()
+               if (t := TASK_RE.match(ln)) and t.group(1) == " "]
+    for note in later:
+        if h2_body(strip_code_blocks(read_note(note)), "## Open loops") is None:
+            print(f"OK {os.path.basename(note)} predates Open loops, skipped")
+            continue
+        present = loop_items(loops_of(note))
+        pending = [ln for ln in pending if loop_text(ln) not in present]
+        if pending and insert_loops(note, pending):
+            print(f"CARRIED {len(pending)} item(s) into {note}")
+    if not later:
+        print("OK no later note")
+    return 0
+
+
 # --- lint (subcommand) ------------------------------------------------------
 
 def lint_structure(text: str, path: str, closed: list[str] = ()) -> list[str]:
@@ -551,8 +611,7 @@ def lint_structure(text: str, path: str, closed: list[str] = ()) -> list[str]:
     present = loop_items(loops)
     open_loops = open_items(loops)
     prev = previous_note(path)
-    prev_loops = h2_body(strip_code_blocks(read_note(prev)), "## Open loops") if prev else None
-    carried = open_items(prev_loops or "")
+    carried = open_items(loops_of(prev)) if prev else set()
 
     blocks: list[tuple[str, str, list[str]]] = []
     for line in work.splitlines():
@@ -755,6 +814,10 @@ def main() -> int:
     ol = sub.add_parser("open-loops", help="open items to carry from the previous note")
     ol.add_argument("--note", required=True, help="the note being written (its note_path)")
     ol.set_defaults(fn=cmd_open_loops)
+
+    cf = sub.add_parser("carry-forward", help="after a backfill: copy its new open items into the newest note")
+    cf.add_argument("--note", required=True)
+    cf.set_defaults(fn=cmd_carry_forward)
 
     li = sub.add_parser("lint", help="gate: layout, typed bullets, open loops, no em dash")
     li.add_argument("notes", nargs="+")
