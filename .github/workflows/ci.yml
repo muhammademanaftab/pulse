@@ -47,16 +47,20 @@ jobs:
       - name: Installed hook command runs through bash
         run: |
           python3 -c "
-          import importlib.util as u, os, subprocess, tempfile
+          import importlib.util as u, os, shutil, subprocess, tempfile
           s = u.spec_from_file_location('install', 'skills/setup/install.py')
           m = u.module_from_spec(s); s.loader.exec_module(m)
           cmd = m.HOOK_COMMAND.removesuffix(' || true')
           assert os.name != 'nt' or not cmd.startswith('python3'), cmd
-          src = os.path.abspath('skills/setup/capture.py').replace(os.sep, '/')
-          for dest in (m.HOOK_DEST.replace(os.sep, '/'), '~/.claude/hooks/pulse-capture.py'):
-              cmd = cmd.replace(dest, src)
+          # Copy into a folder with a space to exercise the quoting.
+          src = os.path.join(tempfile.mkdtemp(), 'a b', 'pulse-capture.py')
+          os.makedirs(os.path.dirname(src)); shutil.copy('skills/setup/capture.py', src)
+          src = src.replace(os.sep, '/')
+          # Windows command quotes the path; POSIX uses ~, which bash expands safely.
+          cmd = cmd.replace(m.HOOK_DEST.replace(os.sep, '/'), src)
+          cmd = cmd.replace('~/.claude/hooks/pulse-capture.py', f'\"{src}\"')
           home = tempfile.mkdtemp()
-          r = subprocess.run(['bash', '-c', cmd], input='{}', text=True, encoding='utf-8',
+          r = subprocess.run([shutil.which('bash') or 'bash', '-c', cmd], input='{}', text=True, encoding='utf-8',
                              env={**os.environ, 'HOME': home, 'USERPROFILE': home})
           assert r.returncode == 0, (cmd, r.returncode)
           print('ok:', cmd)

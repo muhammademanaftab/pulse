@@ -28,7 +28,9 @@ SETTINGS = os.path.join(CLAUDE_DIR, "settings.json")
 if os.name == "nt":
     # python3 can be the Microsoft Store alias stub, which `|| true` would hide.
     # Claude Code runs hooks through Git Bash, so forward slashes and quotes work.
-    _py, _hook = (p.replace("\\", "/") for p in (sys.executable, HOOK_DEST))
+    # The base interpreter, not a venv's, so deleting a venv doesn't break capture.
+    _exe = getattr(sys, "_base_executable", None) or sys.executable
+    _py, _hook = (p.replace("\\", "/") for p in (_exe, HOOK_DEST))
     HOOK_COMMAND = f'"{_py}" "{_hook}" || true'
 else:
     HOOK_COMMAND = 'python3 ~/.claude/hooks/pulse-capture.py || true'
@@ -126,6 +128,11 @@ def write_env(url: str, token: str) -> None:
     print(f"4. Wrote credentials to {ENV_FILE}")
 
 
+def backup_settings() -> None:
+    if os.path.isfile(SETTINGS):
+        shutil.copy(SETTINGS, SETTINGS + ".bak")
+
+
 def install_hook() -> None:
     os.makedirs(HOOKS_DIR, exist_ok=True)
     shutil.copy(os.path.join(HERE, "capture.py"), HOOK_DEST)
@@ -138,7 +145,6 @@ def install_hook() -> None:
             settings = json.load(open(SETTINGS, encoding="utf-8"))
         except Exception:
             die(f"{SETTINGS} is not valid JSON; fix or move it, then re-run.")
-        shutil.copy(SETTINGS, SETTINGS + ".bak")
 
     hooks = settings.setdefault("hooks", {})
     stop = hooks.setdefault("Stop", [])
@@ -149,6 +155,7 @@ def install_hook() -> None:
         # Repair Windows hooks installed with the bare python3 command.
         for h in ours:
             h["command"] = HOOK_COMMAND
+        backup_settings()
         with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
             json.dump(settings, f, indent=2)
         print(f"   updated the Stop hook command in {SETTINGS} (backup at settings.json.bak)")
@@ -156,7 +163,8 @@ def install_hook() -> None:
         print("   hook already present in settings.json (no change)")
     else:
         stop.append({"matcher": "", "hooks": [
-            {"type": "command", "command": HOOK_COMMAND, "timeout": 15000}]})
+            {"type": "command", "command": HOOK_COMMAND, "timeout": 30}]})
+        backup_settings()
         with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
             json.dump(settings, f, indent=2)
         print(f"   added the Stop hook to {SETTINGS} (backup at settings.json.bak)")
