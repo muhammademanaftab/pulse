@@ -38,13 +38,13 @@ Made the app open much faster, fixed a bug that was dropping some notifications,
 - Added a "preview before you publish" button. Deployed.
 - Decided: keep people signed in for 30 days. Why: being asked to log in every visit was the top complaint. Rejected: a 7 day session.
 - Rule: anything that deletes data asks "are you sure?" first.
-- [ ] Add the preview button to the mobile app too.
+- Open: Add the preview button to the mobile app too.
 
 ### [[Notifications]]
 
 - Outcome: Emails and alerts no longer get lost, and people choose which alerts they get.
 - Bug: some alerts never arrived. Cause: two workers picked the same job and one dropped it. Fix: lock each job before sending (PR #42).
-- [ ] Load test the fix before turning it on for everyone.
+- Open: Load test the fix before turning it on for everyone.
 
 ## Open loops
 

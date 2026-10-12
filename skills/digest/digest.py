@@ -39,15 +39,15 @@ FENCE_RE = re.compile(r"```.*?```", re.S)
 CODE_RE = re.compile(r"`[^`\n]*`")
 SKIP_DIRS = {".git", ".obsidian", "node_modules", "__pycache__", ".trash"}
 
-# Daily note layout (skills/digest/references/note-structure.md).
 SECTIONS = ["## Summary", "## Work log", "## Open loops"]
 BLOCK_HEADING_RE = re.compile(
     r"^###\s+(?:\[\[(?P<link>[^\]#|]+)(?:[#|][^\]]*)?\]\]|\*\*(?P<bold>[^*]+)\*\*)\s*$")
-TASK_RE = re.compile(r"^\s*- \[( |x)\] (.+)$")
+TASK_RE = re.compile(r"^\s*- \[( |x|X)\] (.+)$")
 LOOP_TAG_RE = re.compile(
-    r"\s*\((?P<project>[^()]*?),\s*since (?P<since>[A-Z][a-z]{2} \d{1,2})[^()]*\)\s*$")
+    r"\s*\((?P<project>(?:[^()]|\([^()]*\))*?),\s*since (?P<since>[A-Z][a-z]{2} \d{1,2})[^()]*\)\s*$")
+MONTH_DIR_RE = re.compile(r"^\d{4}-\d{2}$")
+CLOSED_RE = re.compile(r",\s*(?:done [A-Z][a-z]{2} \d{1,2}|dropped [A-Z][a-z]{2} \d{1,2}:)")
 DATE_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
-# Phrases that read as AI filler in a work log. Word-bounded, outside code spans.
 BANNED_WORDS = ["non-trivial", "leveraging", "baked into", "kicked off", "blast radius",
                 "key finding", "non-negotiable", "iteratively", "front-of-mind",
                 "underweighted", "pushed through", "delve", "seamlessly"]
@@ -56,6 +56,10 @@ BANNED_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in BANNED_WORDS) +
 
 def strip_code(text: str) -> str:
     return CODE_RE.sub("", FENCE_RE.sub("", text))
+
+
+def strip_code_blocks(text: str) -> str:
+    return FENCE_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
 
 
 # --- config + creds ---------------------------------------------------------
@@ -139,6 +143,18 @@ def _unq(s: str) -> str:
     return s[1:-1] if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'" else s
 
 
+def strip_comment(line: str) -> str:
+    quote = None
+    for i, ch in enumerate(line):
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            return line[:i]
+    return line
+
+
 def load_labels(path: str) -> dict:
     result = {"mappings": {}, "fallback": None, "path_patterns": [], "noise_patterns": []}
     if not path or not os.path.isfile(path):
@@ -146,7 +162,7 @@ def load_labels(path: str) -> dict:
     section, item = None, None
     try:
         for raw in open(path, encoding="utf-8"):
-            line = raw.split("#", 1)[0].rstrip()
+            line = strip_comment(raw.rstrip("\n")).rstrip()
             if not line.strip():
                 continue
             indent = len(line) - len(line.lstrip())
@@ -177,38 +193,47 @@ def load_labels(path: str) -> dict:
     return result
 
 
+def rx_search(rx: str, text: str) -> bool:
+    try:
+        return re.search(rx, text) is not None
+    except re.error as e:
+        print(f"warning: bad regex {rx!r} in project labels: {e}", file=sys.stderr)
+        return False
+
+
+def path_label(cwd: str, labels: dict) -> str | None:
+    return next((p["label"] for p in labels.get("path_patterns", [])
+                 if cwd and p.get("regex") and p.get("label") and rx_search(p["regex"], cwd)), None)
+
+
 def canonical_project(event: dict, labels: dict) -> str:
     project, cwd = event.get("project") or "", event.get("cwd") or ""
     mappings = labels.get("mappings", {})
     if project and project in mappings:
         return mappings[project]
     if cwd:
-        cwd = cwd.replace("\\", "/")  # Windows cwds; patterns are written with /
         base = os.path.basename(cwd.rstrip("/"))
         if base in mappings:
             return mappings[base]
-        for entry in labels.get("path_patterns", []):
-            rx, label = entry.get("regex"), entry.get("label")
-            if rx and label and re.search(rx, cwd):
-                return label
+        if (hit := path_label(cwd, labels)):
+            return hit
     if project and project not in ("", "unknown"):
         return project
     return labels.get("fallback") or "Misc"
 
 
 def is_noise_folder(event: dict, labels: dict) -> bool:
-    """A scratch folder (tmp, scratch-*, ...) per the labels' noise_patterns."""
-    cwd = (event.get("cwd") or "").replace("\\", "/")
-    raw = event.get("project") or os.path.basename(cwd.rstrip("/"))
+    folder = os.path.basename((event.get("cwd") or "").rstrip("/"))
+    raw = event.get("project") or folder
+    if raw in labels.get("mappings", {}) or folder in labels.get("mappings", {}):
+        return False
     return bool(raw) and any(
-        e.get("regex") and re.search(e["regex"], raw) for e in labels.get("noise_patterns", []))
+        e.get("regex") and rx_search(e["regex"], raw) for e in labels.get("noise_patterns", []))
 
 
 def resolve_labels(events: list[dict], labels: dict) -> list[str]:
-    """Canonical label per event. A noise-folder event takes a path_patterns hit
-    on its full path, else the label of the nearest-in-time real event from the
-    same session, else the fallback. So a scratch folder never becomes its own
-    Work log heading."""
+    """A scratch-folder event takes a path_patterns hit on its full path, else the
+    label of the nearest-in-time real event in its session, else the fallback."""
     fallback = labels.get("fallback") or "Misc"
     real: dict[int, str] = {}
     by_session: dict[str, list] = {}
@@ -223,11 +248,9 @@ def resolve_labels(events: list[dict], labels: dict) -> list[str]:
         if i in real:
             out.append(real[i])
             continue
-        cwd = (e.get("cwd") or "").replace("\\", "/")
-        hit = next((p["label"] for p in labels.get("path_patterns", [])
-                    if cwd and p.get("regex") and p.get("label") and re.search(p["regex"], cwd)), None)
         near = by_session.get(e.get("session") or "")
-        out.append(hit or (min(near, key=lambda c: abs(c[0] - e.get("ts", 0)))[1] if near else fallback))
+        out.append(path_label(e.get("cwd") or "", labels)
+                   or (min(near, key=lambda c: abs(c[0] - e.get("ts", 0)))[1] if near else fallback))
     return out
 
 
@@ -256,14 +279,13 @@ def normalize(row: dict) -> dict:
         "prompt": row.get("message", "") or "",
         "response": row.get("response", "") or "",
         "project": row.get("project", "") or "",
-        "cwd": row.get("projectPath", "") or row.get("project_path", "") or "",
+        "cwd": (row.get("projectPath", "") or row.get("project_path", "") or "").replace("\\", "/"),
         "session": row.get("sessionId", "") or "",
     }
 
 
 def defer_today(date: str, now: datetime, include_today: bool) -> bool:
-    """A run before noon on the same day would write a stub note for a day that
-    has barely started; leave those rows unprocessed for the next run."""
+    """Before noon the day has barely started; leave its rows for the next run."""
     return not include_today and date == now.strftime("%Y-%m-%d") and now.hour < 12
 
 
@@ -412,52 +434,73 @@ def cmd_month_links(args) -> int:
 # --- note structure (shared by open-loops and lint) -------------------------
 
 def h2_body(text: str, heading: str) -> str | None:
-    """Body of an H2 section, up to the next H2 or the `---` footer line."""
-    m = re.search(rf"^{re.escape(heading)}[ \t]*\n(.*?)(?=^## |^---[ \t]*$|\Z)", text, re.M | re.S)
-    return m.group(1) if m else None
+    """Up to the next H2, without a trailing `---` footer."""
+    m = re.search(rf"^{re.escape(heading)}[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    if not m:
+        return None
+    return re.sub(r"^---[ \t]*\n(?![\s\S]*^#)[\s\S]*\Z", "", m.group(1), flags=re.M)
 
 
 def loop_text(line: str) -> str:
-    """An Open loops item without its checkbox and trailing (Project, since ...) tag."""
     m = TASK_RE.match(line)
     return LOOP_TAG_RE.sub("", m.group(2) if m else line).strip()
 
 
-def previous_note(path: str) -> str | None:
-    """The latest daily note dated before this one, in the same daily folder."""
+def loop_items(body: str) -> dict[str, str]:
+    return {loop_text(ln): TASK_RE.match(ln).group(1).lower()
+            for ln in body.splitlines() if TASK_RE.match(ln)}
+
+
+def note_date(path: str) -> str | None:
     stem = os.path.splitext(os.path.basename(path))[0]
+    return stem if DATE_FILE_RE.match(stem + ".md") else None
+
+
+def previous_note(path: str) -> str | None:
+    date = note_date(path)
     root = os.path.dirname(os.path.dirname(os.path.abspath(path)))
+    if not date or not os.path.isdir(root):
+        return None
     earlier = []
-    for month in os.listdir(root) if os.path.isdir(root) else []:
+    for month in os.listdir(root):
         mdir = os.path.join(root, month)
-        if os.path.isdir(mdir):
+        if MONTH_DIR_RE.match(month) and os.path.isdir(mdir):
             earlier += [os.path.join(mdir, f) for f in os.listdir(mdir)
-                        if DATE_FILE_RE.match(f) and f[:-3] < stem]
+                        if DATE_FILE_RE.match(f) and f[:-3] < date]
     return max(earlier, key=os.path.basename) if earlier else None
 
 
-def since_age(since: str, note_date: str) -> int | None:
-    """Days from a `since Oct 5` tag to the note's date (tags carry no year)."""
-    nd = datetime.strptime(note_date, "%Y-%m-%d")
-    try:
-        d = datetime.strptime(f"{since} {nd.year}", "%b %d %Y")
-    except ValueError:
-        return None
-    if d > nd:
-        d = d.replace(year=nd.year - 1)
-    return (nd - d).days
+def read_note(path: str) -> str:
+    return open(path, encoding="utf-8", errors="replace").read()
+
+
+def since_age(since: str, date: str) -> int | None:
+    """Tags carry no year: take the latest matching date on or before the note
+    (up to 3 years back, so Feb 29 finds a leap year)."""
+    nd = datetime.strptime(date, "%Y-%m-%d")
+    for year in range(nd.year, nd.year - 4, -1):
+        try:
+            d = datetime.strptime(f"{since} {year}", "%b %d %Y")
+        except ValueError:
+            continue
+        if d <= nd:
+            return (nd - d).days
+    return None
 
 
 # --- open-loops (subcommand) ------------------------------------------------
 
 def cmd_open_loops(args) -> int:
-    note_date = os.path.splitext(os.path.basename(args.note))[0]
+    date = note_date(args.note)
+    if not date:
+        print(f"ERROR: --note must be a dated note (YYYY-MM-DD.md), got {args.note!r}", file=sys.stderr)
+        return 1
     prev = previous_note(args.note)
-    out = {"previous_note": prev, "carry": [], "legacy_next": [], "ticked_in_existing": []}
+    out = {"previous_note": prev, "carry": [], "legacy_next": [], "closed_in_existing": []}
     if prev:
-        text = open(prev, encoding="utf-8").read()
+        text = read_note(prev)
         loops = h2_body(text, "## Open loops")
-        if loops is None:  # a note written before Open loops existed: seed from ## Next
+        if loops is None:
             out["legacy_next"] = [ln[2:].strip() for ln in (h2_body(text, "## Next") or "").splitlines()
                                   if ln.startswith("- ")]
         for ln in (loops or "").splitlines():
@@ -465,15 +508,13 @@ def cmd_open_loops(args) -> int:
             if t and t.group(1) == " ":
                 tag = LOOP_TAG_RE.search(ln)
                 out["carry"].append({
-                    "line": ln.strip(), "text": loop_text(ln),
+                    "text": loop_text(ln),
                     "project": tag.group("project").strip() if tag else None,
                     "since": tag.group("since") if tag else None,
-                    "age_days": since_age(tag.group("since"), note_date) if tag else None})
-    # The note is regenerated in place; keep what the user ticked off by hand.
+                    "age_days": since_age(tag.group("since"), date) if tag else None})
     if os.path.isfile(args.note):
-        loops = h2_body(open(args.note, encoding="utf-8").read(), "## Open loops") or ""
-        out["ticked_in_existing"] = [loop_text(ln) for ln in loops.splitlines()
-                                     if (t := TASK_RE.match(ln)) and t.group(1) == "x"]
+        loops = h2_body(read_note(args.note), "## Open loops") or ""
+        out["closed_in_existing"] = [t for t, state in loop_items(loops).items() if state == "x"]
     print(json.dumps(out, ensure_ascii=False))
     return 0
 
@@ -481,42 +522,54 @@ def cmd_open_loops(args) -> int:
 # --- lint (subcommand) ------------------------------------------------------
 
 def lint_structure(text: str, path: str) -> list[str]:
-    """Typed-bullet layout checks; see skills/digest/references/note-structure.md."""
+    """See skills/digest/references/note-structure.md."""
     problems = []
-    indices = [text.find(f"\n{s}\n") for s in SECTIONS]
-    for s, i in zip(SECTIONS, indices):
-        if i == -1:
+    text = text.lstrip()
+    h2s = [m.group(1).rstrip() for m in re.finditer(r"^(## .*)$", strip_code_blocks(text), re.M)]
+    for s in SECTIONS:
+        if s not in h2s:
             problems.append(f"missing section: {s}")
-    if -1 not in indices and indices != sorted(indices):
-        problems.append("sections out of order (Summary, Work log, Open loops)")
+    extra = [h for h in h2s if h not in SECTIONS]
+    if extra:
+        problems.append(f"unexpected sections {extra} (only Summary, Work log, Open loops)")
+    elif [h for h in h2s if h in SECTIONS] != SECTIONS:
+        problems.append("sections out of order or repeated (Summary, Work log, Open loops)")
     if not (h2_body(text, "## Summary") or "").strip():
         problems.append("## Summary is empty")
 
     fm = re.match(r"^---\n(.*?)\n---\n", text, re.S)
-    fm_projects = re.search(r"^projects:(.*?)(?=^\S|\Z)", fm.group(1) + "\n", re.M | re.S) if fm else None
-    if not fm_projects:
+    fm_block = re.search(r"^projects:(.*?)(?=^\S|\Z)", fm.group(1) + "\n", re.M | re.S) if fm else None
+    if not fm_block:
         problems.append("frontmatter has no `projects:` list")
-    fm_projects = fm_projects.group(1) if fm_projects else ""
+    fm_projects = re.findall(r'"([^"]+)"', fm_block.group(1)) if fm_block else []
 
     work = h2_body(text, "## Work log") or ""
     loops = h2_body(text, "## Open loops") or ""
-    blocks: list[tuple[str, list[str]]] = []
+    for section, body in (("Work log", work), ("Open loops", loops)):
+        for ln in body.splitlines():
+            if ln[:1] in (" ", "\t") and ln.strip():
+                problems.append(f"## {section}: one bullet per line, do not wrap: {ln.strip()[:60]!r}")
+    open_loops = {t for t, state in loop_items(loops).items() if state == " "}
+
+    blocks: list[tuple[str, str, list[str]]] = []
     for line in work.splitlines():
         m = BLOCK_HEADING_RE.match(line)
         if m:
-            blocks.append(((m.group("link") or m.group("bold")).strip(), []))
+            label = (m.group("link") or m.group("bold")).strip()
+            blocks.append((label, f"[[{label}]]" if m.group("link") else label, []))
         elif line.startswith("### "):
             problems.append(f"Work log heading is not `### [[Project]]` or `### **Project**`: {line!r}")
-        elif blocks and line.strip():
-            blocks[-1][1].append(line)
-    for label, lines in blocks:
+        elif blocks and line.strip() and line[:1] not in (" ", "\t"):
+            blocks[-1][2].append(line)
+    if fm_block and fm_projects != [b[1] for b in blocks]:
+        problems.append(f"frontmatter `projects:` must list each block once, in order, as written "
+                        f"in its heading: expected {[b[1] for b in blocks]}, got {fm_projects}")
+    for label, _, lines in blocks:
         where = f"block {label!r}"
         if not lines or not lines[0].startswith("- Outcome: "):
             problems.append(f"{where}: first bullet must be `- Outcome: ...`")
         if sum(ln.startswith("- Outcome:") for ln in lines) > 1:
             problems.append(f"{where}: more than one `- Outcome:`")
-        if f'"{label}"' not in fm_projects and f'"[[{label}]]"' not in fm_projects:
-            problems.append(f"{where}: missing from frontmatter `projects:`")
         refs = [i for i, ln in enumerate(lines) if ln.startswith("- Refs:")]
         if refs and refs[-1] != len(lines) - 1:
             problems.append(f"{where}: `- Refs:` must be the last bullet")
@@ -525,9 +578,12 @@ def lint_structure(text: str, path: str) -> list[str]:
                 problems.append(f"{where}: Decided bullet has no `Why:`: {ln[:70]!r}")
             if ln.startswith("- Bug:") and not ("Cause:" in ln and "Fix:" in ln):
                 problems.append(f"{where}: Bug bullet needs `Cause:` and `Fix:`: {ln[:70]!r}")
-            t = TASK_RE.match(ln)
-            if t and t.group(1) == " " and t.group(2).strip() not in loops:
-                problems.append(f"{where}: open item not in ## Open loops: {t.group(2)[:70]!r}")
+            if TASK_RE.match(ln):
+                problems.append(f"{where}: use `- Open: ...` in the Work log; checkboxes live "
+                                f"only in ## Open loops: {ln[:70]!r}")
+            if ln.startswith("- Open:") and ln[len("- Open:"):].strip() not in open_loops:
+                problems.append(f"{where}: `- Open:` item is not an open `- [ ]` item in "
+                                f"## Open loops (same text): {ln[:70]!r}")
 
     items = [ln for ln in loops.splitlines() if ln.strip()]
     if not items:
@@ -536,18 +592,23 @@ def lint_structure(text: str, path: str) -> list[str]:
         if ln.strip() == "- None.":
             if len(items) > 1:
                 problems.append("## Open loops has `- None.` next to real items")
-        elif not TASK_RE.match(ln):
+        elif ln[:1] in (" ", "\t"):
+            continue  # reported above as a wrapped line
+        elif not (t := TASK_RE.match(ln)):
             problems.append(f"## Open loops line is not a `- [ ]` / `- [x]` item: {ln[:70]!r}")
-        elif not LOOP_TAG_RE.search(ln):
+        elif not (tag := LOOP_TAG_RE.search(ln)):
             problems.append(f"## Open loops item has no `(Project, since Mon D)` tag: {ln[:70]!r}")
+        elif t.group(1) != " " and not CLOSED_RE.search(tag.group(0)):
+            problems.append(f"## Open loops closed item needs `done Mon D` or `dropped Mon D: reason` "
+                            f"in its tag: {ln[:70]!r}")
 
     prev = previous_note(path)
-    prev_loops = h2_body(open(prev, encoding="utf-8").read(), "## Open loops") if prev else None
-    for ln in (prev_loops or "").splitlines():
-        t = TASK_RE.match(ln)
-        if t and t.group(1) == " " and loop_text(ln) not in loops:
+    prev_loops = h2_body(read_note(prev), "## Open loops") if prev else None
+    present = loop_items(loops)
+    for item, state in loop_items(prev_loops or "").items():
+        if state == " " and item not in present:
             problems.append(f"open loop from {os.path.basename(prev)} is missing "
-                            f"(keep it open, or close or drop it): {loop_text(ln)[:70]!r}")
+                            f"(keep it open, or close or drop it): {item[:70]!r}")
     return problems
 
 
@@ -562,7 +623,8 @@ def cmd_lint(args) -> int:
         else:
             if not raw.lstrip().startswith("---"):
                 problems.append("missing YAML frontmatter")
-            problems += lint_structure(raw, note)
+            if not (args.allow_legacy and h2_body(raw, "## Open loops") is None):
+                problems += lint_structure(raw, note)
             for i, line in enumerate(raw.splitlines(), 1):
                 body = strip_code(line)
                 if DASH_RE.search(body):
@@ -682,6 +744,8 @@ def main() -> int:
 
     li = sub.add_parser("lint", help="gate: layout, typed bullets, open loops, no em dash")
     li.add_argument("notes", nargs="+")
+    li.add_argument("--allow-legacy", action="store_true",
+                    help="only check frontmatter and dashes on notes written before Open loops")
     li.set_defaults(fn=cmd_lint)
 
     co = sub.add_parser("coverage", help="gate: every bucket present in the note")

@@ -45,7 +45,7 @@ projects:
 - Bug: <what was seen>. Cause: <why>. Fix: <what changed, or "not fixed yet">.
 - Rule: <a standing instruction that applies to future work>
 - Learned: <a reusable fact or gotcha>
-- [ ] <something left open in this project>
+- Open: <something left open in this project>
 - Refs: <PRs, commits, files, tickets, URLs, comma-separated>
 
 ### **Notifications**
@@ -60,12 +60,15 @@ projects:
 
 Sections are exactly Summary, Work log, Open loops, in that order (lint).
 
+**One bullet is one line** (lint). Never wrap a bullet onto an indented second
+line: lint rejects it, and the weekly synth reads only the first line.
+
 ## Frontmatter
 
-`projects:` lists every Work log block label, one per line, in block order,
-without duplicates (lint). Write `"[[Label]]"` (quoted) when the heading is a link
-and `"Label"` when the heading is bold. This lets Obsidian list every day a project
-was worked on.
+`projects:` lists every Work log block once, in block order, written exactly as
+its heading shows it: `"[[Label]]"` for a linked heading, `"Label"` for a bold
+one (lint). Copy the label from the `render-block` output; never invent a link.
+This lets Obsidian list every day a project was worked on.
 
 ## Summary
 
@@ -95,17 +98,17 @@ it; never write an empty or "none" bullet inside a block.
 4. **`- Bug:`** One per real bug found:
    `Bug: <symptom as seen>. Cause: <root cause>. Fix: <what changed, with PR or file>.`
    `Cause:` and `Fix:` are required (lint). If unfixed, write `Fix: not fixed yet`
-   and add a `- [ ]` item.
+   and add an `Open:` bullet.
 5. **`- Rule:`** A standing instruction that applies beyond today (repeated, or said
-   as a rule: "never guess an email address"). This is what future sessions need
-   to remember.
-6. **`- Learned:`** A reusable fact or gotcha that cost time to find out ("Safari
-   drops the session cookie cross-site unless SameSite=None"). Only if it would
-   save time next time.
-7. **`- [ ]` open items.** Anything left unfinished, waiting on someone, or proposed
-   without an answer. Say who or what it waits on. Every one also goes into
-   `## Open loops` with the same text, followed by ` (<Project>, since <Mon D>)`
-   (lint).
+   as a rule: "never run a migration without a backup"). This is what future
+   sessions need to remember.
+6. **`- Learned:`** A reusable fact or gotcha that cost time to find out ("the CI
+   cache key hashes the lockfile, so editing package.json alone does not refresh
+   it"). Only if it would save time next time.
+7. **`- Open:`** Something new left unfinished today, waiting on someone, or
+   proposed without an answer. Say who or what it waits on. Each one is also an
+   open `- [ ]` item in `## Open loops` with the same text (lint). Checkboxes
+   live only in Open loops (lint), so each item is ticked in one place.
 8. **`- Refs:`** (optional, last; lint). PR numbers, commit SHAs, ticket IDs, key
    file paths and URLs, comma-separated. Keeping them here keeps the result
    bullets readable.
@@ -116,8 +119,8 @@ in the rows.
 ### Context on first mention
 
 The first time a person, client, tool or internal name appears in a block, add a
-few words saying who or what it is: "Dana (design lead)", "Mailcheck (email
-verification service)". A reader months later will not remember.
+few words saying who or what it is: "Sam (on-call engineer)", "Mailgun (email
+sending service)". A reader months later will not remember.
 
 ### What to leave out
 
@@ -141,10 +144,10 @@ If the rows do not show whether something was sent, merged or deployed, write
 
 ### Rule vs one-off instruction
 
-`Rule:` is for instructions that apply beyond the current task ("always preview
-the cost before generating"). A one-off instruction for the task at hand ("don't
+`Rule:` is for instructions that apply beyond the current task ("always run the
+tests before opening a PR"). A one-off instruction for the task at hand ("don't
 merge this until I approve") is not a rule; record its effect as a result or an
-open item instead.
+`Open:` item instead.
 
 ### Numbers
 
@@ -155,15 +158,15 @@ day. If the number is not clearly stated, describe the result without it.
 ## Open loops
 
 The day's to-do ledger. It carries forward from day to day so nothing is
-forgotten.
+forgotten. Only `- [ ]` and `- [x]` lines count; anything else fails lint.
 
-1. Run `digest.py open-loops --note <note_path>` before writing the section. It
-   prints JSON: `carry` (the previous note's unchecked items, each with `text`,
+1. Run `digest.py open-loops --note <note_path>` before writing the note. It
+   prints JSON: `carry` (the previous note's open items, each with `text`,
    `project`, `since`, `age_days`), `legacy_next` (the previous note's `## Next`
-   items when that note predates Open loops), and `ticked_in_existing` (items the
-   user ticked in this date's note before it is regenerated).
-2. Every `carry` item appears again, with its text before the `(Project, since
-   ...)` tag unchanged (lint):
+   items when that note predates Open loops), and `closed_in_existing` (items
+   already closed in this date's note, by hand or by an earlier run, before it is
+   regenerated).
+2. Every `carry` item appears again, with its text unchanged (lint):
    - still open: `- [ ] <text> (<Project>, since <original date>)`. If today moved
      it forward without closing it, add a short note inside the parentheses:
      `(Web App, since Jun 4; retried Jun 5, upload failed)`.
@@ -172,18 +175,21 @@ forgotten.
    - no longer relevant (the Work log shows it was abandoned or replaced):
      `- [x] <text> (<Project>, since <date>, dropped <Mon D>: <reason>)`
 
-   Only close or drop an item when today's work shows it. Without evidence it
-   stays open.
+   A closed item needs `done <Mon D>` or `dropped <Mon D>: <reason>` (lint). Only
+   close or drop an item when today's work shows it. Without evidence it stays
+   open. Carried items stay in Open loops only: do not repeat them as `Open:` in
+   the Work log; put today's progress in the parentheses.
 3. **Stale items age out.** A `carry` item with `age_days` of 7 or more and no
    related work today is dropped:
    `- [x] <text> (<Project>, since <date>, dropped <Mon D>: stale, no activity in 7 days)`.
    If it matters it will come up again.
-4. **Ticked by hand stays ticked.** Much of what gets done never shows up in a
-   session. Ticking `- [x]` in the latest note is enough: it is not carried again.
-   Every item in `ticked_in_existing` stays `- [x]` when this note is regenerated.
-5. Add every new `- [ ]` item from today's Work log blocks.
+4. **Closed stays closed.** Much of what gets done never shows up in a session.
+   Ticking `- [x]` in the latest note's Open loops is enough: it is not carried
+   again. Every item in `closed_in_existing` stays `- [x]` when this note is
+   regenerated.
+5. Add an open item for every `Open:` bullet in today's Work log.
 6. For each still-relevant `legacy_next` item, add an open item
-   `(<Project>, since <that note's date>)`.
+   `(<Project>, since <Mon D of that note>)`.
 7. If nothing is open at all, write `- None.` (lint: never leave it empty).
 
 Closed (`[x]`) items appear only on the day they close.
@@ -196,32 +202,19 @@ result bullet instead.
 
 Before (one undifferentiated stream):
 
-> - Looked into why a customer's reply would not show in the inbox view. Dana
->   replied inside a colleague's thread from the shared support address...
-> - The user pointed out that Dana had cc'd the colleague. The first check said
->   "no cc" because the query didn't return the cc field...
-> - Rule repeated across the day: never send to an address that wasn't verified...
-> - Drafted, across 4 rounds of edits, a message to the account owner. Still
->   unresolved at the end of the day...
+> - Looked into why nightly exports were missing rows. Turned out the job ran twice...
+> - The user asked whether the cron or the queue was retrying. Checked the logs, both were...
+> - Rule mentioned several times today: never run a migration on production without a backup...
+> - Spent a while on the export file format, went back and forth between CSV and Parquet...
 
 After:
 
-> ### **Support Inbox**
+> ### **Data Export**
 >
-> - Outcome: Replies now go out from the inbox the customer wrote to, with
->   everyone they copied, and the ranking redesign is waiting on a decision.
-> - Replies now thread under the customer's latest message, from the inbox it
->   arrived in. Deployed.
-> - Auto-drafted replies keep everyone the customer cc'd, like reply-all. Deployed.
-> - Bug: a reply from Dana (customer contact) showed "No email for this step".
->   Cause: she answered inside a colleague's thread on the shared support inbox,
->   and the view only read her own inbox. Fix: thread picking in `threads.ts`
->   (PR #57).
-> - Decided: once anyone at a company is emailed from one inbox, everyone there is
->   emailed from it too. Why: replies were landing in different inboxes for the
->   same company. Rejected: picking the inbox per person.
-> - Rule: only send to addresses Mailcheck (email verification service) marks
->   "safe". Never guess an address.
-> - [ ] Ranking: by person or by company? Waiting on the account owner. The
->   redesign is on PR #60, local only.
-> - Refs: PR #50, #56, #57, #60, `threads.ts`, `send.ts`
+> - Outcome: Nightly exports now contain every row once, and the file format is settled.
+> - Exports run from one scheduler instead of two. Deployed.
+> - Bug: some exports were missing rows. Cause: the cron and the queue both retried a failed run, and the second run overwrote the first. Fix: only the queue retries now (PR #12).
+> - Decided: export as CSV. Why: every downstream tool reads it. Rejected: Parquet.
+> - Rule: never run a migration on production without a backup.
+> - Open: Backfill the 3 days of short exports. Waiting on Sam (on-call engineer) to approve.
+> - Refs: PR #12, `scheduler.py`, `export_job.py`

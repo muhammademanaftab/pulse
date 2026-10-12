@@ -46,11 +46,11 @@ SKILL file.
    buckets:[{project, events:[{ts,prompt,response,id}]}], row_ids`. Use `note_path`, `projects_dir`,
    `hub_prefix`, and `index_name` from here; do not hand-build paths.
 
-3. **Quiet day.** If `event_count` is 0, do nothing: write no note, make no commit,
-   mark nothing. Report "no captured sessions for <date>" and stop. If
-   `deferred_today` is true, the date is today and it is before noon, so the rows
-   wait for the next run: report "deferred: <date> has only just started" and
-   stop. (Pass `--include-today` to `fetch` to digest it anyway.)
+3. **Deferred or quiet day.** If `deferred_today` is true, the date is today and
+   it is before noon, so the rows wait for the next run: report "deferred: <date>
+   has only just started" and stop (`fetch --include-today` digests it anyway).
+   Otherwise, if `event_count` is 0, do nothing: write no note, make no commit,
+   mark nothing. Report "no captured sessions for <date>" and stop.
 
 4. **Read the rules once** before writing any bullet:
    - `references/note-structure.md` (the note layout, the typed bullets, and how
@@ -61,8 +61,8 @@ SKILL file.
    - `references/humanizer.md` (the AI-writing tells to avoid; applied in step 5b).
      This is the only tone guide: plain English, no AI vocabulary, no em dashes.
 
-5. **Get the open loops to carry** from the previous note (and any items the user
-   ticked by hand in this date's note, which the overwrite would otherwise lose):
+5. **Get the open loops to carry** from the previous note (and the items already
+   closed in this date's note, which the overwrite would otherwise lose):
 
    ```bash
    python3 skills/digest/digest.py open-loops --note "<note_path>" > /tmp/pulse-loops.json
@@ -70,26 +70,30 @@ SKILL file.
 
    **Then write the note at `note_path`** from both JSONs, using this skill's
    `templates/daily-note.md`, exactly as `references/note-structure.md` describes
-   (create the month folder if needed). Fill `<DATE>`, `<DAY_HEADER>`
-   (`Weekday, Month D, YYYY`) and the frontmatter `projects:` list. Sections:
+   (create the month folder if needed). Overwrite any existing note for the date;
+   never append. Fill `<DATE>`, `<DAY_HEADER>` (`Weekday, Month D, YYYY`) and the
+   frontmatter `projects:` list. Sections:
    - **Summary**: 2 to 4 plain sentences on the whole day.
    - **Work log**: one block per bucket, in the JSON's order. Get each block's
      heading from `digest.py render-block` so the project label is linked correctly
      (a project becomes `### [[Project]]` only if its note exists in `projects_dir`,
-     else `### **Project**`); never hand-type a `[[wikilink]]`:
+     else `### **Project**`); never hand-type a `[[wikilink]]`. Write the block's
+     bullets to a file first (with your file-writing tool, not `echo` or
+     `printf`: captured text can contain backticks and `$(...)` that a shell
+     would run), then:
 
      ```bash
-     printf '%s' "<your bullets>" | python3 skills/digest/digest.py render-block \
-       --project "<project>" --projects-dir "<projects_dir>"
+     python3 skills/digest/digest.py render-block --project "<project>" \
+       --projects-dir "<projects_dir>" --bullets-file /tmp/pulse-block.md
      ```
 
      Each block starts with `- Outcome:`, then result bullets, then any
-     `Decided:` / `Bug:` / `Rule:` / `Learned:` / `- [ ]` / `Refs:` bullets, in
+     `Decided:` / `Bug:` / `Rule:` / `Learned:` / `Open:` / `Refs:` bullets, in
      the order note-structure.md gives. Write as many result bullets as the work
      needs, per bullet-quality.md. Verify each bullet against the event `response`
      and its tool calls, not the prompt.
-   - **Open loops**: every carried item (kept open, closed, or dropped), every new
-     `- [ ]` from the Work log, or `- None.`.
+   - **Open loops**: every carried item (kept open, closed, or dropped), an open
+     item for every `Open:` bullet in the Work log, or `- None.`.
 
 5b. **Humanizer pass (readability, required).** Before saving, apply the
    `references/humanizer.md` checklist to every line you wrote (Summary, Work log,
@@ -102,11 +106,12 @@ SKILL file.
    real file name, path, count, and ID exactly (rewrite phrasing only, never drop or
    invent a fact); keep bullets terse; do NOT add personality, opinions, or first
    person (a work log is technical text, so neutral and plain is the correct human
-   voice).
+   voice). Keep the typed prefixes (`Outcome:`, `Decided:`, `Why:`, `Rejected:`,
+   `Bug:`, `Cause:`, `Fix:`, `Rule:`, `Learned:`, `Open:`, `Refs:`), the
+   checkboxes and the `(Project, since ...)` tags exactly; they are the note's
+   format, not inline-header lists. Never reword a carried Open loops item.
 
-6. **Overwrite** any existing note for the date. Do not append.
-
-7. **Wire the Obsidian graph.** Link the note into its month hub and the index
+6. **Wire the Obsidian graph.** Link the note into its month hub and the index
    (idempotent, creates them if missing):
 
    ```bash
@@ -115,14 +120,14 @@ SKILL file.
      --hub-prefix "<hub_prefix>" --index "<index_name>"
    ```
 
-8. **Run the gates in order. Any failure stops the run: do not commit, push, or
+7. **Run the gates in order. Any failure stops the run: do not commit, push, or
    mark rows processed.** Fix the note and re-run the failed gate.
    - Lint: `python3 skills/digest/digest.py lint "<note_path>"`
    - Coverage: `python3 skills/digest/digest.py coverage --digest-json /tmp/pulse-digest.json --note "<note_path>" --projects-dir "<projects_dir>"`
    - Link health: `python3 skills/digest/digest.py check-links --vault "<notes_repo_dir>" --subfolder "<vault_subfolder first segment>"`
 
-8b. **Reviewer subagent (fidelity check, required before push).** The gates in
-   step 8 check the note's *form*; they cannot tell whether the bullets are *true*.
+7b. **Reviewer subagent (fidelity check, required before push).** The gates in
+   step 7 check the note's *form*; they cannot tell whether the bullets are *true*.
    Dispatch a fresh subagent with the Agent tool to check that. Give it exactly:
    - the note you wrote (read `note_path` and paste its full contents), and
    - the digest JSON `/tmp/pulse-digest.json` (the raw `buckets` with each event's
@@ -146,14 +151,14 @@ SKILL file.
      different now, not what was attempted.
    - **Open loops are honest**: every `carry` item is present; one is closed or
      dropped only when the rows show it (or it is stale per note-structure.md);
-     every `ticked_in_existing` item is still `- [x]`; no open item names work the
+     every `closed_in_existing` item is still `- [x]`; no open item names work the
      Work log shows finished.
 
    If the reviewer returns FAIL, fix the note for the exact gaps it named, then
-   re-run step 8 (the gates) and re-review. Only proceed to step 9 on PASS. Do not
+   re-run step 7 (the gates) and re-review. Only proceed to step 8 on PASS. Do not
    push or mark a note the reviewer has not passed.
 
-9. **Commit, push, mark.** In the notes repo: commit the note, push to its branch,
+8. **Commit, push, mark.** In the notes repo: commit the note, push to its branch,
    then verify the push landed (`HEAD` equals `origin/<branch>`). Only after that,
    `POST {CONVEX_URL}/mark-processed` with `{"ids": row_ids}`. If the push fails or
    the SHAs differ, stop and do not mark: the rows stay unprocessed and the next run
@@ -172,7 +177,7 @@ SKILL file.
   of dead links and orphans.
 - Never edit the raw rows. This skill only reads them (via the script) and writes
   under the notes repo.
-- The mechanical gates (step 8) check form; the reviewer subagent (step 8b) checks
+- The mechanical gates (step 7) check form; the reviewer subagent (step 7b) checks
   truth. Both must pass before pushing. Never skip the reviewer on an unattended run.
 - Never mark a row processed until its note is confirmed pushed.
 
