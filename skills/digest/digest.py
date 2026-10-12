@@ -444,6 +444,9 @@ def cmd_check_links(args) -> int:
 # --- dispatch ---------------------------------------------------------------
 
 def main() -> int:
+    # Piped stdio uses the console codepage on Windows; JSON and notes are UTF-8.
+    for stream in (sys.stdin, sys.stdout):
+        stream.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description="Pulse digester (L3).")
     sub = p.add_subparsers(dest="cmd", required=True)
 

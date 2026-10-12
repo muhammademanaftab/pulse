@@ -281,7 +281,7 @@ def main() -> None:
         return
 
     try:
-        hook_input = json.load(sys.stdin)
+        hook_input = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     except Exception as e:
         log(f"stdin parse error: {e}")
         return

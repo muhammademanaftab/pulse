@@ -132,7 +132,7 @@ def cmd_collect(args) -> int:
         iso = d.isoformat()
         cand = os.path.join(daily_dir, iso[:7], f"{iso}.md")
         if os.path.isfile(cand):
-            notes.append(os.path.relpath(cand, notes_repo))
+            notes.append(os.path.relpath(cand, notes_repo).replace("\\", "/"))
         d += timedelta(days=1)
 
     ym = week_end.isoformat()[:7]
@@ -377,6 +377,9 @@ def cmd_coverage(args) -> int:
 # --- dispatch ---------------------------------------------------------------
 
 def main() -> int:
+    # Piped stdio uses the console codepage on Windows; JSON and notes are UTF-8.
+    for stream in (sys.stdin, sys.stdout):
+        stream.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description="Pulse weekly synthesizer (L4).")
     sub = p.add_subparsers(dest="cmd", required=True)
 
