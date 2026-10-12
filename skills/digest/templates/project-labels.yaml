@@ -1,2 +1,6 @@
 mappings:
 fallback: Misc
+# Scratch folders never get their own Work log heading: their rows take the label
+# of the real project worked on in the same session (regex on the folder name).
+# noise_patterns:
+#   - regex: "^(tmp|temp|scratch.*|repo)$"
