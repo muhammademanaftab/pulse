@@ -61,8 +61,8 @@ share it.
 
 - **Clone at runtime (recommended):** attach only your notes repo; the routine's
   instructions clone the public pulse repo at a pinned release tag (currently
-  `v0.1.0`) each run, so an unattended push-capable agent only ever runs reviewed,
-  tagged code. When you cut a new release, bump the `--branch v0.1.0` tag in
+  `v0.2.0`) each run, so an unattended push-capable agent only ever runs reviewed,
+  tagged code. When you cut a new release, bump the `--branch` tag in
   `digest.md` and `synth.md`.
 - **Attach the pulse repo:** attach it alongside your notes repo to pin the version.
 

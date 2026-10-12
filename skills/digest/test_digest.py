@@ -339,6 +339,65 @@ def test_since_age_wraps_the_year():
     assert dg.since_age("Feb 29", "2029-01-03") == 309
 
 
+def test_carry_forward_after_backfill():
+    later = GOOD.replace("- [ ] Add the preview button to mobile. (Web App, since Jun 2)", "- None.")
+    root = vault_with({"2026-06-01": PREV, "2026-06-03": later,
+                       "2026-06-04": later.replace("- None.", "- [x] Pick a session length. (Web App, since "
+                                                   "May 29, done Jun 4)")})
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert dg.cmd_carry_forward(type("A", (), {"note": note_path(root, "2026-06-01")})) == 0
+    loops = dg.h2_body(dg.read_note(note_path(root, "2026-06-04")), "## Open loops")
+    assert dg.loop_items(loops) == {"Pick a session length.": "x", "Add the preview button to mobile.": " ",
+                                    "Write the release notes.": " "}, loops
+    assert dg.read_note(note_path(root, "2026-06-03")) == later
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        assert dg.cmd_carry_forward(type("A", (), {"note": note_path(root, "2026-06-01")})) == 0
+    assert "nothing new" in out.getvalue()
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        assert dg.cmd_carry_forward(type("A", (), {"note": note_path(root, "2026-06-04")})) == 0
+    assert "no later note" in out.getvalue()
+
+
+def test_fetch_reads_whole_day_and_marks_only_new_rows():
+    rows = [{"_id": "a", "ts": 1780394400000, "message": "build the export", "response": "done",
+             "project": "web", "projectPath": "/u/web", "sessionId": "s", "processed": True},
+            {"_id": "b", "ts": 1780398000000, "message": "fix the cron", "response": "fixed",
+             "project": "tmp", "projectPath": "/tmp", "sessionId": "s", "processed": False},
+            {"_id": "c", "ts": 1780398100000, "message": "ok", "response": "", "project": "web",
+             "projectPath": "/u/web", "sessionId": "s", "processed": False}]
+    home = tempfile.mkdtemp()
+    with open(os.path.join(home, "project-labels.yaml"), "w", encoding="utf-8") as f:
+        f.write('mappings:\n  web: Web App\nnoise_patterns:\n  - regex: "^tmp$"\n')
+    seen = {}
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        seen["url"] = req.full_url
+        return Resp(json.dumps({"rows": rows}).encode())
+
+    env = {"PULSE_HOME": home, "CONVEX_URL": "https://x.example", "CONVEX_TOKEN": "t", "PULSE_TZ": "UTC"}
+    old_env, old_open = {k: os.environ.get(k) for k in env}, dg.urlopen
+    os.environ.update(env)
+    dg.urlopen = fake_urlopen
+    try:
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            assert dg.cmd_fetch(type("A", (), {"date": "2026-06-02", "include_today": False})) == 0
+    finally:
+        dg.urlopen = old_open
+        for k, v in old_env.items():
+            os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
+    got = json.loads(out.getvalue())
+    assert "/all?" in seen["url"], seen
+    assert got["row_ids"] == ["b", "c"] and got["new_row_count"] == 2, got
+    assert got["event_count"] == 2 and [b["project"] for b in got["buckets"]] == ["Web App"], got
+
+
 # --- labels, noise folders, deferral ----------------------------------------
 
 def test_load_labels_reads_noise_patterns():
