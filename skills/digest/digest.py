@@ -54,7 +54,7 @@ def read_config(path: str) -> dict:
     if not os.path.isfile(path):
         return cfg
     try:
-        for line in open(path):
+        for line in open(path, encoding="utf-8"):
             line = line.split("#", 1)[0].strip()
             if not line or ":" not in line:
                 continue
@@ -79,7 +79,7 @@ def load_convex_env() -> tuple[str | None, str | None]:
         return url, token
     if os.path.isfile(ENV_FILE):
         try:
-            for line in open(ENV_FILE):
+            for line in open(ENV_FILE, encoding="utf-8"):
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
@@ -127,7 +127,7 @@ def load_labels(path: str) -> dict:
         return result
     section, item = None, None
     try:
-        for raw in open(path):
+        for raw in open(path, encoding="utf-8"):
             line = raw.split("#", 1)[0].rstrip()
             if not line.strip():
                 continue
@@ -404,7 +404,7 @@ def cmd_check_links(args) -> int:
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in filenames:
             if fn.endswith(".md"):
-                rel = os.path.relpath(os.path.join(dirpath, fn), vault)
+                rel = os.path.relpath(os.path.join(dirpath, fn), vault).replace("\\", "/")
                 files.append(rel)
                 stem_to_rel.setdefault(os.path.splitext(fn)[0], rel)
 

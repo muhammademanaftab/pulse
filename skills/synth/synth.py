@@ -52,7 +52,7 @@ def read_config(path: str) -> dict:
     if not os.path.isfile(path):
         return cfg
     try:
-        for line in open(path):
+        for line in open(path, encoding="utf-8"):
             line = line.split("#", 1)[0].strip()
             if not line or ":" not in line:
                 continue

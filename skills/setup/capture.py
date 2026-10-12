@@ -89,7 +89,7 @@ def log(msg: str) -> None:
                 os.replace(LOG_FILE, LOG_FILE + ".1")
         except OSError:
             pass
-        with open(LOG_FILE, "a") as f:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(f"[{datetime.now(timezone.utc).isoformat()}] {msg}\n")
     except Exception:
         pass
@@ -102,7 +102,7 @@ def load_env() -> tuple[str | None, str | None]:
         return None, None
     url = token = None
     try:
-        with open(ENV_FILE) as f:
+        with open(ENV_FILE, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
@@ -124,12 +124,12 @@ def load_env() -> tuple[str | None, str | None]:
 # --- transcript parsing -----------------------------------------------------
 
 def get_git_info(cwd: str) -> tuple[str, str]:
-    repo_name = os.path.basename(cwd.rstrip("/")) or "unknown"
-    username = os.environ.get("USER", "unknown")
+    repo_name = os.path.basename(cwd.rstrip("/\\")) or "unknown"
+    username = os.environ.get("USER") or os.environ.get("USERNAME", "unknown")
     try:
         r = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2,
         )
         if r.returncode == 0 and r.stdout.strip():
             repo_name = os.path.basename(r.stdout.strip())
@@ -138,7 +138,7 @@ def get_git_info(cwd: str) -> tuple[str, str]:
     try:
         r = subprocess.run(
             ["git", "-C", cwd, "config", "user.name"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2,
         )
         if r.returncode == 0 and r.stdout.strip():
             username = r.stdout.strip()
@@ -219,7 +219,7 @@ def render_assistant(parsed: list[dict], start: int) -> tuple[str, str | None]:
 
 def extract_from_transcript(path: str) -> tuple[str | None, str | None, str | None]:
     parsed = []
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:

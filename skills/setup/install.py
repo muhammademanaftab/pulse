@@ -38,8 +38,11 @@ def have(cmd: str) -> bool:
 
 
 def run(args: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[int, str, str]:
+    # shutil.which finds npm.cmd/npx.cmd shims on Windows; no-op on POSIX.
+    resolved = shutil.which(args[0]) or args[0]
     try:
-        p = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run([resolved, *args[1:]], cwd=cwd, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired:
         return 124, "", f"'{' '.join(args)}' timed out after {timeout}s"
     return p.returncode, p.stdout.strip(), p.stderr.strip()
@@ -95,7 +98,7 @@ def resolve_site_url() -> str:
             return url
     envlocal = os.path.join(BACKEND, ".env.local")
     if os.path.isfile(envlocal):
-        for line in open(envlocal):
+        for line in open(envlocal, encoding="utf-8"):
             m = re.search(r"https://[\w-]+\.convex\.cloud", line)
             if m:
                 return m.group(0).replace(".convex.cloud", ".convex.site")
@@ -105,11 +108,11 @@ def resolve_site_url() -> str:
 def write_env(url: str, token: str) -> None:
     os.makedirs(PULSE_HOME, exist_ok=True)
     content = f"CONVEX_URL={url}\nCONVEX_TOKEN={token}\n"
-    if os.path.isfile(ENV_FILE) and open(ENV_FILE).read() == content:
+    if os.path.isfile(ENV_FILE) and open(ENV_FILE, encoding="utf-8").read() == content:
         os.chmod(ENV_FILE, 0o600)  # re-tighten perms even when content is current
         print(f"4. Credentials already current at {ENV_FILE}")
         return
-    with open(ENV_FILE, "w") as f:
+    with open(ENV_FILE, "w", encoding="utf-8") as f:
         f.write(content)
     os.chmod(ENV_FILE, 0o600)
     print(f"4. Wrote credentials to {ENV_FILE}")
@@ -124,7 +127,7 @@ def install_hook() -> None:
     settings = {}
     if os.path.isfile(SETTINGS):
         try:
-            settings = json.load(open(SETTINGS))
+            settings = json.load(open(SETTINGS, encoding="utf-8"))
         except Exception:
             die(f"{SETTINGS} is not valid JSON; fix or move it, then re-run.")
         shutil.copy(SETTINGS, SETTINGS + ".bak")
@@ -141,7 +144,7 @@ def install_hook() -> None:
     else:
         stop.append({"matcher": "", "hooks": [
             {"type": "command", "command": HOOK_COMMAND, "timeout": 15000}]})
-        with open(SETTINGS, "w") as f:
+        with open(SETTINGS, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)
         print(f"   added the Stop hook to {SETTINGS} (backup at settings.json.bak)")
 
@@ -211,7 +214,7 @@ def cmd_notes(args) -> int:
     if not os.path.isfile(CONFIG_EXAMPLE):
         die(f"missing {CONFIG_EXAMPLE}")
     out = []
-    for line in open(CONFIG_EXAMPLE).read().splitlines():
+    for line in open(CONFIG_EXAMPLE, encoding="utf-8").read().splitlines():
         if line.startswith("timezone:"):
             out.append(f"timezone: {tz}")
         elif line.startswith("notes_repo:"):
@@ -222,12 +225,12 @@ def cmd_notes(args) -> int:
 
     os.makedirs(PULSE_HOME, exist_ok=True)
     if os.path.isfile(CONFIG_FILE):
-        if open(CONFIG_FILE).read() == content:
+        if open(CONFIG_FILE, encoding="utf-8").read() == content:
             print(f"   config already current at {CONFIG_FILE}")
             print(repo)
             return 0
         shutil.copy(CONFIG_FILE, CONFIG_FILE + ".bak")
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"   wrote {CONFIG_FILE} (notes_repo={repo}, timezone={tz})")
     print(repo)
