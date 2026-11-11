@@ -26,7 +26,7 @@ each turn it stores, in your Convex deployment:
   Matches become `[REDACTED:<kind>]`.
 - **This is best-effort, not a guarantee.** Novel or unusual secret formats can slip
   through, and the patterns can occasionally redact harmless text that looks like a
-  secret (a sha256 digest, a sentence like "password: rotate quarterly"). Do not rely
+  secret (a sha256 digest, a sentence like "password: correct-horse-battery"). Do not rely
   on it as your only control. If you paste a credential into a session, rotate it.
   The redaction patterns live in `capture.py` (`REDACT_PATTERNS`) and are easy to
   extend for your own formats.

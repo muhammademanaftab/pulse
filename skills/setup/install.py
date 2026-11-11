@@ -130,51 +130,51 @@ def write_env(url: str, token: str) -> None:
     print(f"4. Wrote credentials to {ENV_FILE}")
 
 
-def backup_settings() -> None:
-    if os.path.isfile(SETTINGS):
+def save_settings(settings: dict) -> str:
+    backed_up = os.path.isfile(SETTINGS)
+    if backed_up:
         shutil.copy(SETTINGS, SETTINGS + ".bak")
+    with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(settings, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    return " (backup at settings.json.bak)" if backed_up else ""
 
 
 def install_hook() -> None:
-    os.makedirs(HOOKS_DIR, exist_ok=True)
-    shutil.copy(os.path.join(HERE, "capture.py"), HOOK_DEST)
-    os.chmod(HOOK_DEST, 0o755)
-    print(f"5. Copied capture script to {HOOK_DEST}")
-
     settings = {}
     if os.path.isfile(SETTINGS):
         try:
             settings = json.load(open(SETTINGS, encoding="utf-8"))
         except Exception:
             die(f"{SETTINGS} is not valid JSON; fix or move it, then re-run.")
+    hooks = settings.setdefault("hooks", {}) if isinstance(settings, dict) else None
+    stop = hooks.setdefault("Stop", []) if isinstance(hooks, dict) else None
+    if not isinstance(stop, list):
+        die(f"{SETTINGS} has an unexpected shape (it must be an object whose `hooks` is an "
+            "object and `hooks.Stop` a list); fix or move it, then re-run.")
 
-    hooks = settings.setdefault("hooks", {})
-    stop = hooks.setdefault("Stop", [])
+    os.makedirs(HOOKS_DIR, exist_ok=True)
+    shutil.copy(os.path.join(HERE, "capture.py"), HOOK_DEST)
+    os.chmod(HOOK_DEST, 0o755)
+    print(f"5. Copied capture script to {HOOK_DEST}")
+
     ours = [h for group in stop if isinstance(group, dict)
             for h in group.get("hooks", [])
             if isinstance(h, dict) and "pulse-capture.py" in h.get("command", "")]
-    if os.name == "nt" and any(h.get("command") != HOOK_COMMAND for h in ours):
-        # Repair Windows hooks installed with the bare python3 command.
+    if any(h.get("command") != HOOK_COMMAND for h in ours):
         for h in ours:
             h["command"] = HOOK_COMMAND
-        backup_settings()
-        with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(settings, f, indent=2)
-        print(f"   updated the Stop hook command in {SETTINGS} (backup at settings.json.bak)")
+        print(f"   updated the Stop hook command in {SETTINGS}{save_settings(settings)}")
     elif ours:
         print("   hook already present in settings.json (no change)")
     else:
         stop.append({"matcher": "", "hooks": [
             {"type": "command", "command": HOOK_COMMAND, "timeout": 30}]})
-        backup_settings()
-        with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(settings, f, indent=2)
-        print(f"   added the Stop hook to {SETTINGS} (backup at settings.json.bak)")
+        print(f"   added the Stop hook to {SETTINGS}{save_settings(settings)}")
 
 
 def verify(url: str, token: str) -> None:
     print("6. Verifying with a probe record...")
-    # Fixed event_id: re-running setup reuses the one probe row instead of adding more.
     payload = json.dumps({"message": "pulse install verification probe",
                           "event_id": "pulse-install-verify",
                           "project": "pulse-install", "projectPath": "/",
@@ -226,6 +226,16 @@ def cmd_notes(args) -> int:
     if not have("git"):
         die("'git' not found. Install it and re-run.")
     repo = os.path.abspath(os.path.expanduser(args.repo))
+    if os.path.exists(repo) and not os.path.isdir(repo):
+        die(f"{repo} is a file, not a folder.")
+    if args.timezone:
+        try:
+            from zoneinfo import available_timezones
+            known = available_timezones()
+        except Exception:
+            known = set()
+        if known and args.timezone not in known:
+            die(f"unknown timezone {args.timezone!r}. Use an IANA name such as Europe/London.")
     if not os.path.isdir(repo):
         if not args.create:
             die(f"{repo} does not exist. Check the path, or add --create to make it.")

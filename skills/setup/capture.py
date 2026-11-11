@@ -42,6 +42,11 @@ AUTO_INJECTED_PREFIXES = (
     "<command-name>",
     "<local-command-stdout>",
     "[Image: source:",
+    "[Request interrupted",
+    "Caveat: The messages below were generated",
+    "<bash-input>",
+    "<bash-stdout>",
+    "<bash-stderr>",
 )
 
 # Best-effort secret scrubbing. Everything captured (prompts, responses,
@@ -169,6 +174,20 @@ def is_user_typed_text(text: str) -> bool:
     return not any(s.startswith(p) for p in AUTO_INJECTED_PREFIXES)
 
 
+def message_of(entry: dict) -> dict:
+    msg = entry.get("message")
+    return msg if isinstance(msg, dict) else {}
+
+
+def content_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(b.get("text", "") for b in content
+                         if isinstance(b, dict) and isinstance(b.get("text"), str))
+    return ""
+
+
 def command_text(text: str) -> str | None:
     name = COMMAND_NAME_RE.search(text)
     if not name:
@@ -181,8 +200,7 @@ def command_text(text: str) -> str | None:
 def extract_user_text(entry: dict) -> str | None:
     if entry.get("isMeta") or entry.get("isCompactSummary"):
         return None
-    msg = entry.get("message", {})
-    content = msg.get("content")
+    content = message_of(entry).get("content")
     if isinstance(content, str):
         return command_text(content) or (content if is_user_typed_text(content) else None)
     if isinstance(content, list):
@@ -220,8 +238,8 @@ def render_assistant(parsed: list[dict], start: int) -> tuple[str, str | None]:
         if et == "assistant":
             last_was_task_noti = False
             if model is None:
-                model = entry.get("message", {}).get("model")
-            for b in entry.get("message", {}).get("content", []):
+                model = message_of(entry).get("model")
+            for b in message_of(entry).get("content") or []:
                 if not isinstance(b, dict):
                     continue
                 bt = b.get("type", "")
@@ -241,8 +259,7 @@ def render_assistant(parsed: list[dict], start: int) -> tuple[str, str | None]:
         elif et == "queue-operation" and entry.get("operation") == "enqueue":
             enqueue_count += 1
         elif et == "user" or "permissionMode" in entry:
-            c = entry.get("message", {}).get("content", "")
-            if isinstance(c, str) and "<task-notification>" in c:
+            if "<task-notification>" in content_text(message_of(entry).get("content")):
                 task_noti_count += 1
                 last_was_task_noti = True
 
@@ -261,9 +278,11 @@ def extract_from_transcript(path: str) -> tuple[str | None, str | None, str | No
             if not line:
                 continue
             try:
-                parsed.append(json.loads(line))
+                entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if isinstance(entry, dict):
+                parsed.append(entry)
     if not parsed:
         return None, None, None
 
@@ -313,13 +332,18 @@ def post_event(url: str, token: str, payload: dict) -> None:
 def main() -> None:
     url, token = load_env()
     if not url or not token:
-        log(f"no CONVEX_URL/CONVEX_TOKEN in {ENV_FILE}, skipping (run skills/setup/install.py)")
+        if os.path.isfile(ENV_FILE):
+            log(f"no usable CONVEX_URL/CONVEX_TOKEN in {ENV_FILE}, skipping "
+                "(run skills/setup/install.py)")
         return
 
     try:
         hook_input = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     except Exception as e:
         log(f"stdin parse error: {e}")
+        return
+    if not isinstance(hook_input, dict):
+        log("stdin is not a JSON object, skipping")
         return
 
     session_id = hook_input.get("session_id", "")

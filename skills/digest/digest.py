@@ -31,7 +31,8 @@ from urllib.request import Request, urlopen
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
     BANNED_RE, DASH_RE, DATE_FILE_RE, LOOP_TAG_RE, TASK_RE, cfg_get, get_tz, h2_body,
-    link_into_hubs, list_dated_notes, load_config, loop_text, pulse_home, read_note,
+    link_into_hubs, list_dated_notes, load_config, loop_text, notes_repo_dir, pulse_home,
+    read_note,
     render_label, strip_code, strip_code_blocks, utf8_stdio)
 
 TRIVIAL_PROMPTS = {
@@ -268,7 +269,7 @@ def cmd_fetch(args) -> int:
 
     labels = load_labels(os.path.expanduser(
         cfg_get(cfg, "project_labels", None, os.path.join(pulse_home(), "project-labels.yaml"))))
-    notes_repo = os.path.expanduser(cfg_get(cfg, "notes_repo", "NOTES_REPO", ""))
+    notes_repo = notes_repo_dir(cfg)
     vault_subfolder = cfg_get(cfg, "vault_subfolder", "PULSE_VAULT_SUBFOLDER", "Pulse/Daily")
     projects_subfolder = cfg_get(cfg, "projects_subfolder", "PULSE_PROJECTS_SUBFOLDER", "Pulse/Projects")
     hub_prefix = cfg_get(cfg, "hub_prefix", "PULSE_HUB_PREFIX", "Pulse")

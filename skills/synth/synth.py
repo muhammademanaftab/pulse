@@ -25,9 +25,10 @@ from datetime import timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
-    DASH_RE, cfg_get, get_tz, link_into_hubs, load_config, parse_note,
-    render_label, resolve_week_end, strip_code, utf8_stdio)
+    DASH_RE, cfg_get, get_tz, h2_body, link_into_hubs, load_config, notes_repo_dir,
+    parse_note, read_note, render_label, resolve_week_end, strip_code_blocks, strip_code, utf8_stdio)
 
+COVERAGE_SECTIONS = ["## What you worked on", "## What I skipped (and why)"]
 LOOP_RE = re.compile(r"^- \[( |x|X)\] (.+?)\s*\([^()]*(?:\([^()]*\)[^()]*)*since [^()]*\)\s*$")
 
 
@@ -39,7 +40,7 @@ def cmd_collect(args) -> int:
     week_end = resolve_week_end(args.week_end, tz)
     week_start = week_end - timedelta(days=6)
 
-    notes_repo = os.path.expanduser(cfg_get(cfg, "notes_repo", "NOTES_REPO", ""))
+    notes_repo = notes_repo_dir(cfg)
     vault_subfolder = cfg_get(cfg, "vault_subfolder", "PULSE_VAULT_SUBFOLDER", "Pulse/Daily")
     projects_subfolder = cfg_get(cfg, "projects_subfolder", "PULSE_PROJECTS_SUBFOLDER", "Pulse/Projects")
     weekly_subfolder = cfg_get(cfg, "weekly_subfolder", "PULSE_WEEKLY_SUBFOLDER", "Pulse/Weekly")
@@ -94,16 +95,19 @@ def cmd_buckets(args) -> int:
     daily_summaries = []
     scanned = 0
     loop_state: dict[str, str] = {}
+    missing = [rel for rel in week.get("notes", [])
+               if not os.path.isfile(os.path.join(repo, rel) if repo else rel)]
+    if missing:
+        print(f"ERROR: {len(missing)} daily note(s) listed by `collect` were not found "
+              f"under {repo or os.getcwd()!r}: {missing[0]}", file=sys.stderr)
+        return 1
     for rel in week.get("notes", []):
         full = os.path.join(repo, rel) if repo else rel
-        if not os.path.isfile(full):
-            continue
         scanned += 1
         note_date = os.path.splitext(os.path.basename(rel))[0]
-        text = open(full, encoding="utf-8").read()
+        text = strip_code_blocks(read_note(full))
         summary, blocks = parse_note(text)
-        loops = re.search(r"^## Open loops[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-        for ln in (loops.group(1) if loops else "").splitlines():
+        for ln in (h2_body(text, "## Open loops") or "").splitlines():
             if (t := LOOP_RE.match(ln)):
                 loop_state[t.group(2)] = ln
         if summary:
@@ -175,18 +179,20 @@ def cmd_coverage(args) -> int:
         print(f"FAIL cannot read weekly note: {e}", file=sys.stderr)
         return 1
     ignore = set(args.ignore) if args.ignore else {"Misc"}
-    # Word-boundary match so a label ("Auth") is not counted as present just
-    # because a longer word ("Authentication") contains it. A label that is a
-    # standalone word inside a longer phrase ("App" in "Web App") still counts.
+    heads = [ln[2:].split(":", 1)[0] for section in COVERAGE_SECTIONS
+             for ln in (h2_body(strip_code_blocks(note), section) or "").splitlines()
+             if ln.startswith("- ")]
+
     def named(label: str) -> bool:
-        return re.search(rf"(?<!\w){re.escape(label)}(?!\w)", note) is not None
+        return any(re.search(rf"(?<!\w){re.escape(label)}(?!\w)", h) for h in heads)
     missing = [label for label in buckets if label not in ignore and not named(label)]
     if missing:
         print(f"FAIL coverage: {len(missing)} project(s) that appeared this week are "
               f"not named in {args.weekly_note}", file=sys.stderr)
         for label in missing:
             print(f"  - {label}", file=sys.stderr)
-        print("Do NOT push. Name every project in worked-on or skipped, then rerun.",
+        print("Do NOT push. Start a bullet with each project's name in "
+              "\"What you worked on\" or \"What I skipped (and why)\", then rerun.",
               file=sys.stderr)
         return 1
     print(f"OK coverage: all {len([l for l in buckets if l not in ignore])} "

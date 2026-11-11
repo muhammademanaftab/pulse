@@ -84,6 +84,12 @@ def cfg_get(cfg: dict, key: str, env: str | None, default: str) -> str:
     return cfg.get(key, default)
 
 
+def notes_repo_dir(cfg: dict) -> str:
+    """Absolute path of the notes repo, or "" when none is configured."""
+    repo = cfg_get(cfg, "notes_repo", "NOTES_REPO", "")
+    return os.path.abspath(os.path.expanduser(repo)) if repo else ""
+
+
 def get_tz(cfg: dict):
     name = cfg_get(cfg, "timezone", "PULSE_TZ", "UTC")
     if name and name != "UTC":
@@ -100,10 +106,16 @@ def resolve_week_end(arg: str | None, tz) -> date:
     """Sunday of the most recently completed calendar week, or the given date."""
     if arg:
         try:
-            return datetime.strptime(arg, "%Y-%m-%d").date()
+            day = datetime.strptime(arg, "%Y-%m-%d").date()
         except ValueError:
             print(f"ERROR: --week-end must be YYYY-MM-DD, got {arg!r}", file=sys.stderr)
             sys.exit(1)
+        if day.weekday() != 6:
+            sunday = day + timedelta(days=6 - day.weekday())
+            print(f"ERROR: --week-end must be a Sunday; {arg} is not. "
+                  f"The week containing it ends {sunday.isoformat()}.", file=sys.stderr)
+            sys.exit(1)
+        return day
     today = datetime.now(tz).date()
     return today - timedelta(days=(today.weekday() - 6) % 7)
 

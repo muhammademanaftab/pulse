@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
@@ -24,7 +25,8 @@ from common import (  # noqa: E402
 
 TYPES = ["outcome", "decided", "bug", "rule", "learned", "open", "refs", "result", "summary"]
 PREFIX_RE = re.compile(r"^(Outcome|Decided|Bug|Rule|Learned|Open|Refs): ")
-WORD_RE = re.compile(r"[a-z0-9][a-z0-9_.#/-]*")
+WORD_RE = re.compile(r"[^\W_][\w.#/-]*")
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 STOPWORDS = set("""a about an and are as at be been by did do does for from had has have how i in
 is it me my of on or our that the then this to was we were what when where which who why
 with you""".split())
@@ -72,23 +74,46 @@ def score(entry: dict, query: list[str]) -> int:
     return sum(2 if stem(q) in words else 1 if stem(q) in name else 0 for q in query)
 
 
+def valid_date(value: str | None) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(DATE_RE.match(value)) and bool(datetime.strptime(value, "%Y-%m-%d"))
+    except ValueError:
+        return False
+
+
+def fail(message: str) -> int:
+    print(json.dumps({"error": message}), file=sys.stderr)
+    return 2
+
+
 def cmd_search(args) -> int:
     cfg = load_config()
     repo = args.vault or cfg_get(cfg, "notes_repo", "NOTES_REPO", "")
     if not repo:
-        print(json.dumps({"error": "no notes_repo; run skills/setup/install.py notes"}),
-              file=sys.stderr)
-        return 2
+        return fail("no notes_repo; run skills/setup/install.py notes")
+    for flag, value in (("--since", args.since), ("--until", args.until)):
+        if not valid_date(value):
+            return fail(f"{flag} must be a real date as YYYY-MM-DD, got {value!r}")
+    if args.limit < 1:
+        return fail("--limit must be 1 or more")
     vault = os.path.abspath(os.path.expanduser(repo))
     daily_dir = os.path.join(vault, cfg_get(cfg, "vault_subfolder", "PULSE_VAULT_SUBFOLDER", "Pulse/Daily"))
+    if not os.path.isdir(daily_dir):
+        return fail(f"no daily notes folder at {daily_dir}; check notes_repo and "
+                    "vault_subfolder in ~/.pulse/config.yaml")
     query = terms(" ".join(args.query))
     project = args.project.lower() if args.project else None
+    filtered = bool(args.type or project or args.since or args.until)
+    unusable = bool(args.query) and not query and not filtered
 
-    notes, hits = list_dated_notes(daily_dir), []
+    notes, hits, searched = list_dated_notes(daily_dir), [], 0
     for path in notes:
         date = os.path.splitext(os.path.basename(path))[0]
-        if (args.since and date < args.since) or (args.until and date > args.until):
+        if (args.since and date < args.since) or (args.until and date > args.until) or unusable:
             continue
+        searched += 1
         for e in entries(path, vault):
             if args.type and e["type"] not in args.type:
                 continue
@@ -106,7 +131,8 @@ def cmd_search(args) -> int:
         if key not in seen:
             seen.add(key)
             unique.append(h)
-    out = {"vault": vault, "notes_searched": len(notes), "query_terms": query,
+    out = {"vault": vault, "notes_in_vault": len(notes), "notes_searched": searched,
+           "query_terms": query,
            "total_hits": len(unique), "hits": unique[:args.limit]}
     print(json.dumps(out, ensure_ascii=False))
     return 0

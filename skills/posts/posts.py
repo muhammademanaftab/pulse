@@ -21,8 +21,8 @@ from datetime import timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
-    BANNED_RE, DASH_RE, cfg_get, get_tz, h2_body, link_into_hubs, load_config, parse_note,
-    read_note, resolve_week_end, strip_code_blocks, utf8_stdio)
+    BANNED_RE, DASH_RE, cfg_get, get_tz, h2_body, link_into_hubs, load_config, notes_repo_dir,
+    parse_note, read_note, resolve_week_end, strip_code_blocks, utf8_stdio)
 
 LINKEDIN_MAX = 3000
 TWEET_MAX = 280
@@ -38,12 +38,11 @@ def cmd_collect(args) -> int:
     cfg = load_config()
     week_end = resolve_week_end(args.week_end, get_tz(cfg))
     week_start = week_end - timedelta(days=6)
-    repo = cfg_get(cfg, "notes_repo", "NOTES_REPO", "")
+    repo = notes_repo_dir(cfg)
     if not repo:
         print(json.dumps({"error": "no notes_repo; run skills/setup/install.py notes",
                           "week_end": week_end.isoformat()}), file=sys.stderr)
         return 2
-    repo = os.path.expanduser(repo)
     daily = cfg_get(cfg, "vault_subfolder", "PULSE_VAULT_SUBFOLDER", "Pulse/Daily")
     weekly = cfg_get(cfg, "weekly_subfolder", "PULSE_WEEKLY_SUBFOLDER", "Pulse/Weekly")
     projects = cfg_get(cfg, "projects_subfolder", "PULSE_PROJECTS_SUBFOLDER", "Pulse/Projects")

@@ -83,6 +83,39 @@ def test_no_match_returns_no_hits_and_stopwords_are_ignored():
     assert search("what", "did", "we", "the")["query_terms"] == []
 
 
+def search_error(*query, **kw) -> str:
+    args = type("A", (), {"query": list(query), "vault": kw.get("vault", ROOT), "project": None,
+                          "type": None, "since": kw.get("since"), "until": kw.get("until"),
+                          "limit": kw.get("limit", 20)})
+    with contextlib.redirect_stderr(io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()):
+        assert rc.cmd_search(args) == 2
+    return json.loads(err.getvalue())["error"]
+
+
+def test_a_missing_vault_is_an_error_not_an_empty_answer():
+    assert "no daily notes folder" in search_error("alert", vault="/does/not/exist")
+
+
+def test_bad_dates_and_limits_are_rejected():
+    for bad in ("2026-9-1", "yesterday", "2026-10", "2026-02-31"):
+        assert "--since must be a real date" in search_error(since=bad), bad
+    assert "--until must be a real date" in search_error(until="June")
+    assert "--limit" in search_error("alert", limit=0)
+    assert "--limit" in search_error("alert", limit=-1)
+
+
+def test_words_that_cannot_be_searched_match_nothing():
+    assert search("?")["total_hits"] == 0
+    assert search("the", "what")["total_hits"] == 0
+    assert search("the", project="notif")["total_hits"] > 0
+    assert search("caf\u00e9")["query_terms"] == ["caf\u00e9"]
+
+
+def test_notes_searched_counts_only_the_date_range():
+    got = search(since="2026-06-05")
+    assert (got["notes_in_vault"], got["notes_searched"]) == (2, 1), got
+
+
 def test_project_name_alone_scores_lower_than_a_text_match():
     hits = search("notifications", "lock")["hits"]
     assert "lock each job" in hits[0]["text"], hits[0]
