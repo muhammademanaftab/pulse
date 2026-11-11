@@ -25,7 +25,6 @@ from common import (  # noqa: E402
     loop_text, parse_note, read_note, strip_code_blocks, utf8_stdio)
 
 ABOUT_TODO = "About: not written yet."
-# Bullet prefix -> page section, in page order.
 SECTIONS = [("Decided", "## Decisions"), ("Bug", "## Bugs"),
             ("Rule", "## Rules and lessons"), ("Learned", "## Rules and lessons")]
 UNSAFE_NAME_RE = re.compile(r'[\\/:*?"<>|#^\[\]]')
@@ -60,7 +59,7 @@ def collect(daily_dir: str, vault: str, ignore: set[str]) -> dict[str, dict]:
                         line = (f"- {pretty(date)}: {text}" if section != "## Rules and lessons"
                                 else f"- {prefix}: {text} ({pretty(date)})")
                         proj["items"].setdefault(section, []).append(line)
-    if notes:  # the newest note's Open loops is the current ledger
+    if notes:
         loops = h2_body(strip_code_blocks(read_note(notes[-1])), "## Open loops") or ""
         for ln in loops.splitlines():
             t, tag = TASK_RE.match(ln), LOOP_TAG_RE.search(ln)
@@ -127,7 +126,7 @@ def cmd_sync(args) -> int:
             continue
         if old is not None and not re.match(r"^---\n(?:.*\n)*?type: project\n", old):
             print(f"SKIPPED {path} (not a Pulse project page, left as written)")
-            have_page.add(label)  # it exists, so headings may link to it
+            have_page.add(label)
             continue
         about = ABOUT_RE.search(old) if old else None
         text = render_page(label, proj, (about.group(1).strip() if about else "") or ABOUT_TODO)

@@ -83,6 +83,9 @@ jobs:
       - name: Project page tests
         run: python3 tests/test_projects.py
 
+      - name: Recall search tests
+        run: python3 tests/test_recall.py
+
       - name: Link-rendering rule (existence-based)
         run: |
           set -e

@@ -62,7 +62,7 @@ def test_page_is_built_from_the_daily_notes():
     assert "- Rule: anything that deletes data asks first. (Jun 3, 2026)" in text, text
     assert "- Add the preview button to mobile. (since Jun 2)" in text, text
     assert text.index("2026-06-03|Jun 3, 2026") < text.index("2026-06-02|Jun 2, 2026"), text
-    assert "## Bugs" not in text, text  # empty sections are left out
+    assert "## Bugs" not in text, text
 
 
 def test_one_day_project_waits_for_min_days():

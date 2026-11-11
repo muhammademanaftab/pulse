@@ -3,6 +3,7 @@
 
   python3 skills/setup/install.py                         wire capture (default)
   python3 skills/setup/install.py notes --repo <path> --create   configure daily notes
+  python3 skills/setup/install.py recall                  install the /pulse-recall skill
 """
 from __future__ import annotations
 
@@ -263,6 +264,21 @@ def cmd_notes(args) -> int:
     return 0
 
 
+def cmd_recall() -> int:
+    script = os.path.join(REPO, "skills", "recall", "recall.py").replace("\\", "/")
+    python = f'"{_py}"' if os.name == "nt" else "python3"
+    text = open(os.path.join(REPO, "skills", "recall", "SKILL.md"), encoding="utf-8").read()
+    text = text.replace("name: recall", "name: pulse-recall", 1).replace(
+        "python3 skills/recall/recall.py", f'{python} "{script}"')
+    dest = os.path.join(CLAUDE_DIR, "skills", "pulse-recall", "SKILL.md")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    print(f"   installed /pulse-recall at {dest}\n"
+          "   it runs the script in this clone, so re-run this if you move the repo")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd")
@@ -271,9 +287,12 @@ def main() -> int:
     n.add_argument("--repo", required=True)
     n.add_argument("--create", action="store_true")
     n.add_argument("--timezone", default=None)
+    sub.add_parser("recall")
     args = p.parse_args()
     if args.cmd == "notes":
         return cmd_notes(args)
+    if args.cmd == "recall":
+        return cmd_recall()
     return cmd_capture()
 
 

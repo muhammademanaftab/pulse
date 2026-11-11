@@ -24,7 +24,6 @@ BANNED_WORDS = ["non-trivial", "leveraging", "baked into", "kicked off", "blast 
                 "underweighted", "pushed through", "delve", "seamlessly"]
 BANNED_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in BANNED_WORDS) + r")\b", re.I)
 
-# The daily-note layout the digest writes (skills/digest/references/note-structure.md).
 HEADING_RE = re.compile(
     r"^###\s+(?:\[\[(?P<link>[^\]#|]+)(?:[#|][^\]]*)?\]\]|\*\*(?P<bold>[^*]+)\*\*)")
 ANY_H3_RE = re.compile(r"^###\s")
@@ -45,12 +44,9 @@ def strip_code_blocks(text: str) -> str:
 
 
 def utf8_stdio() -> None:
-    # Piped stdio uses the console codepage on Windows; JSON and notes are UTF-8.
     for stream in (sys.stdin, sys.stdout):
         stream.reconfigure(encoding="utf-8")
 
-
-# --- config -----------------------------------------------------------------
 
 def pulse_home() -> str:
     return os.path.expanduser(os.environ.get("PULSE_HOME", "~/.pulse"))
@@ -92,14 +88,10 @@ def get_tz(cfg: dict):
             from zoneinfo import ZoneInfo
             return ZoneInfo(name)
         except Exception:
-            # Windows Python ships no tz database; without this the day window
-            # would silently shift to UTC.
             print(f"warning: unknown timezone {name!r}, using UTC "
                   "(on Windows: pip install tzdata)", file=sys.stderr)
     return timezone.utc
 
-
-# --- linking rule (existence-based) -----------------------------------------
 
 def render_label(label: str, projects_dir: str | None) -> str:
     """Wikilink iff the project note exists, else bold. No dead links possible."""
@@ -108,8 +100,6 @@ def render_label(label: str, projects_dir: str | None) -> str:
         return f"[[{label}]]"
     return f"**{label}**"
 
-
-# --- month hub + index wiring -----------------------------------------------
 
 def upsert_list(text: str, heading: str, new_line: str, reverse: bool = False):
     """Add new_line to the sorted list under heading. Returns (text, changed)."""
@@ -136,7 +126,6 @@ def _write(path: str, text: str) -> None:
         f.write(text)
 
 
-# kind: (hub frontmatter type, list heading, one entry per week?, index blurb)
 HUB_KINDS = {
     "daily": ("month-hub", "## Days", False, "monthly note hubs"),
     "weekly": ("weekly-hub", "## Weeks", True, "weekly note hubs"),
@@ -192,8 +181,6 @@ def link_into_hubs(args, kind: str) -> int:
     return 0
 
 
-# --- reading daily notes ----------------------------------------------------
-
 def list_dated_notes(daily_dir: str) -> list[str]:
     """Every YYYY-MM-DD.md in the YYYY-MM folders under daily_dir, oldest first."""
     if not os.path.isdir(daily_dir):
@@ -227,7 +214,7 @@ def parse_note(text: str):
     summary_lines: list[str] = []
     blocks: list[dict] = []
     current: dict | None = None
-    section = None  # None | "summary" | "worklog"
+    section = None
 
     for raw in text.splitlines():
         line = raw.rstrip()
@@ -252,7 +239,7 @@ def parse_note(text: str):
             current = {"project": (linked or m.group("bold")).strip(),
                        "bold": linked is None, "bullets": []}
             continue
-        if ANY_H3_RE.match(line):  # an H3 with no recognizable label ends the block
+        if ANY_H3_RE.match(line):
             if current:
                 blocks.append(current)
                 current = None

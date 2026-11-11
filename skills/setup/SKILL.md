@@ -49,6 +49,13 @@ Run everything from the repo root. Do the phases in order.
    recent day with data, but stop after the gates. **Do NOT push or mark rows
    processed** (the routine owns that). Show the user the note path.
 
+   Then install the recall skill, so they can ask about past work from any project
+   ("when did I fix the alert bug?") with `/pulse-recall`:
+
+   ```bash
+   python3 skills/setup/install.py recall
+   ```
+
    If `digest.py fetch` returns `event_count` 0 (brand-new user, nothing captured
    yet), tell them plainly: notes appear once they've used Claude Code, and they can
    run the digest later. Do not treat this as an error.
