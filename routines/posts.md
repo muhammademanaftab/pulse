@@ -13,5 +13,5 @@ are not required for this routine.
 Instructions (paste into the routine):
 
 ```
-If the pulse repo is not already checked out, clone the pinned release: git clone --branch v0.3.0 --depth 1 https://github.com/muhammademanaftab/pulse.git. Read pulse/skills/posts/SKILL.md and follow every step exactly, for the most recently completed week in $PULSE_TZ. Read the notes from the notes repo at $NOTES_REPO and write the drafts file back into it. Do not post anything anywhere. Do not push if any gate or the reviewer subagent fails. After the push is verified, report the drafts file path and commit SHA.
+If the pulse repo is not already checked out, clone the pinned release: git clone --branch v0.3.0 --depth 1 https://github.com/muhammademanaftab/pulse.git. Before running any command, make NOTES_REPO absolute: export NOTES_REPO="$(cd "$NOTES_REPO" && pwd)" from the directory you started in (clone $NOTES_REPO_REMOTE there first if it is not checked out). Read pulse/skills/posts/SKILL.md and follow every step exactly, for the most recently completed week in $PULSE_TZ. Read the notes from the notes repo at $NOTES_REPO and write the drafts file back into it. Do not post anything anywhere. Do not push if any gate or the reviewer subagent fails. After the push is verified, report the drafts file path and commit SHA.
 ```

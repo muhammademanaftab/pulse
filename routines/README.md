@@ -52,11 +52,13 @@ to LinkedIn or X and never posts.
 CONVEX_URL=<your .convex.site URL, from ~/.pulse/.env>
 CONVEX_TOKEN=<your INGEST_TOKEN, from ~/.pulse/.env>
 PULSE_TZ=<your IANA timezone, e.g. Europe/Berlin>
-NOTES_REPO=<absolute path of the notes repo checkout in the routine, or its folder name next to the pulse clone>
+NOTES_REPO=notes
 NOTES_REPO_REMOTE=https://github.com/<you>/<notes-repo>.git
 GITHUB_TOKEN=<fine-grained PAT, contents read/write on the notes repo>
 ```
 
+`NOTES_REPO` is the folder name of your notes repo in the routine's workspace; the
+routine instructions turn it into an absolute path before running anything.
 `CONVEX_URL` and `CONVEX_TOKEN` are the same values `~/.pulse/.env` holds. `GITHUB_TOKEN`
 is only needed for the token path (skip it if you attach the notes repo as a connector).
 
