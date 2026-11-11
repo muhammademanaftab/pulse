@@ -31,7 +31,9 @@ LOG_FILE = os.path.expanduser("~/.pulse/capture.log")
 MAX_LOG_BYTES = 5 * 1024 * 1024
 MAX_FIELD_CHARS = 100_000  # Convex caps documents at 1MB; stay well under it
 
-FILTERED_TOOL_FIELDS = {"content", "old_string", "new_string"}
+FILTERED_TOOL_FIELDS = {"content", "old_string", "new_string", "new_source"}
+COMMAND_NAME_RE = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>")
+COMMAND_ARGS_RE = re.compile(r"<command-args>(.*?)</command-args>", re.S)
 AUTO_INJECTED_PREFIXES = (
     "<task-notification>",
     "<user-prompt-submit-hook>",
@@ -47,17 +49,28 @@ AUTO_INJECTED_PREFIXES = (
 # leaves the machine. Not a guarantee, but it catches the common shapes.
 REDACT_PATTERNS = (
     ("private-key", re.compile(
-        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S)),
-    ("aws-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
-    ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
+        r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----.*?"
+        r"(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\Z)", re.S)),
+    ("url-credentials", re.compile(r"(?<=://)[^\s:/@]*:[^\s@/]+(?=@)")),
+    ("webhook", re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/_-]+")),
+    ("aws-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("github-token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,})\b")),
+    ("slack-token", re.compile(r"\b(?:xox[baprs]|xapp)-[A-Za-z0-9-]{10,}\b")),
     ("api-key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    ("stripe-key", re.compile(r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}\b")),
+    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}")),
+    ("token", re.compile(
+        r"\b(?:glpat-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{35}|hf_[A-Za-z0-9]{30,}"
+        r"|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})")),
     ("bearer", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.I)),
+    ("basic-auth", re.compile(r"\bBasic\s+[A-Za-z0-9+/]{16,}={0,2}")),
     # No leading \b: it would fail after an underscore, missing GITHUB_TOKEN=...
     ("assignment", re.compile(
         r"(?:api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|token|passwd|password)"
-        r"\b\s*[=:]\s*['\"]?[^\s'\"]{8,}", re.I)),
-    ("hex", re.compile(r"\b[a-f0-9]{40,}\b")),
+        r"\b['\"]?\s*[=:]\s*"
+        r"(?!['\"]?(?:process\.env|os\.environ|os\.getenv|\$\{?[A-Za-z_]|undefined\b|null\b|None\b))"
+        r"['\"]?[^\s'\"]{8,}", re.I)),
+    ("hex", re.compile(r"\b(?![a-f0-9]{40}\b)[a-fA-F0-9]{40,}\b")),
 )
 
 
@@ -156,21 +169,42 @@ def is_user_typed_text(text: str) -> bool:
     return not any(s.startswith(p) for p in AUTO_INJECTED_PREFIXES)
 
 
+def command_text(text: str) -> str | None:
+    name = COMMAND_NAME_RE.search(text)
+    if not name:
+        return None
+    args = COMMAND_ARGS_RE.search(text)
+    command = name.group(1) if name.group(1).startswith("/") else "/" + name.group(1)
+    return f"{command} {args.group(1).strip() if args else ''}".strip()
+
+
 def extract_user_text(entry: dict) -> str | None:
+    if entry.get("isMeta") or entry.get("isCompactSummary"):
+        return None
     msg = entry.get("message", {})
     content = msg.get("content")
     if isinstance(content, str):
-        return content if is_user_typed_text(content) else None
+        return command_text(content) or (content if is_user_typed_text(content) else None)
     if isinstance(content, list):
         parts = []
         for block in content:
             if not isinstance(block, dict) or block.get("type") != "text":
                 continue
             text = block.get("text", "")
-            if is_user_typed_text(text):
+            if (command := command_text(text)):
+                parts.append(command)
+            elif is_user_typed_text(text):
                 parts.append(text)
         return "\n".join(parts) if parts else None
     return None
+
+
+def drop_filtered(value):
+    if isinstance(value, dict):
+        return {k: drop_filtered(v) for k, v in value.items() if k not in FILTERED_TOOL_FIELDS}
+    if isinstance(value, list):
+        return [drop_filtered(v) for v in value]
+    return value
 
 
 def render_assistant(parsed: list[dict], start: int) -> tuple[str, str | None]:
@@ -200,7 +234,7 @@ def render_assistant(parsed: list[dict], start: int) -> tuple[str, str | None]:
                     parts.append(f'<tool_use name="{name}">')
                     inp = b.get("input", {})
                     if isinstance(inp, dict):
-                        kept = [f"{k}: {v}" for k, v in inp.items() if k not in FILTERED_TOOL_FIELDS]
+                        kept = [f"{k}: {v}" for k, v in drop_filtered(inp).items()]
                         if kept:
                             parts.append(", ".join(kept))
                     parts.append("</tool_use>\n")
@@ -249,8 +283,8 @@ def extract_from_transcript(path: str) -> tuple[str | None, str | None, str | No
         return None, None, None
 
     response, model = render_assistant(parsed, last_user_idx)
-    if not response and model is None:
-        return None, None, None  # render_assistant signaled skip
+    if not response and (model is None or last_user_text.startswith("/")):
+        return None, None, None
     return last_user_text, response, model
 
 

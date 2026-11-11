@@ -16,6 +16,7 @@ import io
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime
 
@@ -554,6 +555,15 @@ def test_mapping_beats_noise_pattern_and_bad_regex_warns():
         assert dg.resolve_labels(events, labels) == ["Pulse"]
         assert not dg.is_noise_folder({"cwd": "/u/x", "project": "x"}, labels)
     assert "bad regex" in err.getvalue(), err.getvalue()
+
+
+def test_config_values_keep_a_hash_inside_quotes_or_without_a_space():
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+        f.write('# header\nnotes_repo: "/u/my notes #1"\nhub_prefix: Pulse  # trailing\n'
+                "vault_subfolder: C#/Daily\nempty:\n")
+    cfg = sys.modules["common"].read_config(f.name)
+    os.unlink(f.name)
+    assert cfg == {"notes_repo": "/u/my notes #1", "hub_prefix": "Pulse", "vault_subfolder": "C#/Daily"}, cfg
 
 
 def test_label_comments_keep_hash_in_values():

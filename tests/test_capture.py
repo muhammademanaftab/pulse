@@ -156,7 +156,13 @@ def test_redaction_each_class():
         "api-key": "sk-abcdefghijklmnopqrstuvwxyz012345",
         "bearer": "Authorization: Bearer abcdef1234567890XYZ",
         "assignment": "export API_KEY=supersecretvalue123",
-        "hex": "0123456789abcdef0123456789abcdef01234567",
+        "hex": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "url-credentials": "postgres://admin:Pa55w0rdXyz@db.internal:5432/app",
+        "webhook": "https://hooks.slack.com/services/T000/B000/abcdefghijklmnop",
+        "stripe-key": "sk_live_abcdefghijklmnop1234",
+        "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N",
+        "token": "glpat-abcdefghij0123456789",
+        "basic-auth": "Authorization: Basic dXNlcjpwYXNzd29yZDEyMw==",
     }
     for kind, sample in cases.items():
         out = cap.redact(sample)
@@ -176,6 +182,89 @@ def test_redaction_prefixed_env_vars():
     ):
         out = cap.redact(sample)
         assert "[REDACTED:assignment]" in out, (sample, out)
+
+
+def test_redaction_more_shapes():
+    for sample, secret in (
+        ('{"password": "hunter2hunter2"}', "hunter2hunter2"),
+        ('"api_key": "abcd1234abcd1234"', "abcd1234abcd1234"),
+        ("github_pat_11ABCDEFG0abcdefghijklmn_opqrstuv", "github_pat_11ABCDEFG0"),
+        ("ASIAIOSFODNN7EXAMPLE", "ASIAIOSFODNN7EXAMPLE"),
+        ("xapp-1-A0123456789-abcdef", "xapp-1-A0123456789"),
+        ("mongodb+srv://user:s3cretpw@cluster0.example.net", "s3cretpw"),
+        ("-----BEGIN PGP PRIVATE KEY BLOCK-----\nabc\n-----END PGP PRIVATE KEY BLOCK-----", "abc"),
+        ("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF", "0123456789ABCDEF"),
+    ):
+        out = cap.redact(sample)
+        assert "[REDACTED:" in out and secret not in out, (sample, out)
+
+
+def test_redaction_leaves_commit_shas_and_env_lookups():
+    for harmless in (
+        "git checkout 0123456789abcdef0123456789abcdef01234567",
+        "password: process.env.DB_PASSWORD",
+        'api_key = os.environ["API_KEY"]',
+        "export TOKEN=$GITHUB_TOKEN",
+        "The token=undefined bug",
+        "see https://example.com/docs/page",
+    ):
+        assert cap.redact(harmless) == harmless, (harmless, cap.redact(harmless))
+
+
+def test_skill_turn_records_the_command_not_the_skill_body():
+    path = write_transcript([
+        user("earlier question"),
+        assistant([{"type": "text", "text": "earlier answer"}]),
+        user("<command-message>review</command-message>\n<command-name>/review</command-name>\n"
+             "<command-args>the login bug</command-args>"),
+        {"type": "user", "isMeta": True,
+         "message": {"content": [{"type": "text", "text": "Base directory for this skill: /x\nSKILL BODY"}]}},
+        assistant([{"type": "text", "text": "reviewing"}]),
+    ])
+    prompt, response, _ = cap.extract_from_transcript(path)
+    os.unlink(path)
+    assert prompt == "/review the login bug", prompt
+    assert "reviewing" in response and "earlier answer" not in response, response
+
+
+def test_compact_summary_is_not_a_prompt():
+    path = write_transcript([
+        user("real question"),
+        assistant([{"type": "text", "text": "answer"}]),
+        {"type": "user", "isCompactSummary": True,
+         "message": {"content": "This session is being continued from a previous conversation"}},
+    ])
+    prompt, _, _ = cap.extract_from_transcript(path)
+    os.unlink(path)
+    assert prompt == "real question", prompt
+
+
+def test_local_command_without_a_response_is_skipped():
+    path = write_transcript([
+        user("q1"),
+        assistant([{"type": "text", "text": "a1"}]),
+        user("<command-name>/cost</command-name>"),
+        user("<local-command-stdout>$0.12</local-command-stdout>"),
+    ])
+    result = cap.extract_from_transcript(path)
+    os.unlink(path)
+    assert result == (None, None, None), result
+
+
+def test_nested_edit_payloads_are_dropped():
+    path = write_transcript([
+        user("edit things"),
+        assistant([
+            {"type": "tool_use", "name": "MultiEdit",
+             "input": {"file_path": "/c.py", "edits": [{"old_string": "OLDM", "new_string": "NEWM"}]}},
+            {"type": "tool_use", "name": "NotebookEdit",
+             "input": {"notebook_path": "/n.ipynb", "new_source": "NBSRC"}},
+        ]),
+    ])
+    _, response, _ = cap.extract_from_transcript(path)
+    os.unlink(path)
+    assert "file_path: /c.py" in response and "notebook_path: /n.ipynb" in response, response
+    assert not any(leak in response for leak in ("OLDM", "NEWM", "NBSRC")), response
 
 
 def test_load_env_refuses_http():

@@ -58,11 +58,14 @@ def read_config(path: str) -> dict:
         return cfg
     try:
         for line in open(path, encoding="utf-8"):
-            line = line.split("#", 1)[0].strip()
-            if not line or ":" not in line:
+            if line.lstrip().startswith("#") or ":" not in line:
                 continue
             k, v = line.split(":", 1)
-            k, v = k.strip(), v.strip().strip('"').strip("'")
+            k, v = k.strip(), v.strip()
+            if v[:1] in ("\"", "'") and v.find(v[0], 1) > 0:
+                v = v[1:v.find(v[0], 1)]
+            else:
+                v = re.split(r"(?:^|\s)#", v, 1)[0].strip()
             if v:
                 cfg[k] = v
     except Exception:

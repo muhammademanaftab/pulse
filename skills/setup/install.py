@@ -226,9 +226,11 @@ def cmd_notes(args) -> int:
     if not have("git"):
         die("'git' not found. Install it and re-run.")
     repo = os.path.abspath(os.path.expanduser(args.repo))
-    if args.create or not os.path.isdir(repo):
-        os.makedirs(repo, exist_ok=True)
-    if not os.path.isdir(os.path.join(repo, ".git")):
+    if not os.path.isdir(repo):
+        if not args.create:
+            die(f"{repo} does not exist. Check the path, or add --create to make it.")
+        os.makedirs(repo)
+    if not os.path.exists(os.path.join(repo, ".git")):
         code, _, err = run(["git", "init", repo])
         if code != 0:
             die(f"git init failed at {repo}:\n{err}")
@@ -237,29 +239,31 @@ def cmd_notes(args) -> int:
     else:
         print(f"   using existing notes repo at {repo}")
 
-    tz = args.timezone or detect_timezone()
     if not os.path.isfile(CONFIG_EXAMPLE):
         die(f"missing {CONFIG_EXAMPLE}")
-    out = []
+    old = open(CONFIG_FILE, encoding="utf-8").read() if os.path.isfile(CONFIG_FILE) else None
+    lines = (old or "").splitlines()
+    key_of = lambda line: line.split(":", 1)[0].strip() if ":" in line and not line.startswith("#") else None
+    have_keys = {key_of(line) for line in lines}
+    wanted = {"notes_repo": f'notes_repo: "{repo}"'}
+    if args.timezone or "timezone" not in have_keys:
+        wanted["timezone"] = f"timezone: {args.timezone or detect_timezone()}"
+    lines = [wanted.get(key_of(line), line) for line in lines]
     for line in open(CONFIG_EXAMPLE, encoding="utf-8").read().splitlines():
-        if line.startswith("timezone:"):
-            out.append(f"timezone: {tz}")
-        elif line.startswith("notes_repo:"):
-            out.append(f"notes_repo: {repo}")
-        else:
-            out.append(line)
-    content = "\n".join(out) + "\n"
+        if key_of(line) and key_of(line) not in have_keys:
+            lines.append(wanted.get(key_of(line), line))
+    content = "\n".join(lines) + "\n"
 
     os.makedirs(PULSE_HOME, exist_ok=True)
-    if os.path.isfile(CONFIG_FILE):
-        if open(CONFIG_FILE, encoding="utf-8").read() == content:
-            print(f"   config already current at {CONFIG_FILE}")
-            print(repo)
-            return 0
+    if old == content:
+        print(f"   config already current at {CONFIG_FILE}")
+        print(repo)
+        return 0
+    if old is not None:
         shutil.copy(CONFIG_FILE, CONFIG_FILE + ".bak")
     with open(CONFIG_FILE, "w", encoding="utf-8", newline="\n") as f:
         f.write(content)
-    print(f"   wrote {CONFIG_FILE} (notes_repo={repo}, timezone={tz})")
+    print(f"   wrote {CONFIG_FILE} (notes_repo={repo}); your other settings are kept")
     print(repo)
     return 0
 
