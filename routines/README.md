@@ -22,7 +22,7 @@ digest; the weekly synth uses the same shape with the changes noted underneath.
 | **Repos** | your **notes** repo (gets the note). For the pulse code, pick one below. |
 | **Trigger** | daily cron, late in your day (e.g. `11:59 PM` in your timezone) |
 | **Environment** | the `pulse` cloud environment below |
-| **Permissions** | allow git push to the notes repo |
+| **Permissions** | allow git push to the notes repo, and subagents (each skill has a reviewer subagent check its work before pushing) |
 | **Connectors** | GitHub connector if you attach the notes repo instead of using a token |
 
 For the **weekly synth**, create a second routine with the same fields but:
@@ -52,7 +52,7 @@ to LinkedIn or X and never posts.
 CONVEX_URL=<your .convex.site URL, from ~/.pulse/.env>
 CONVEX_TOKEN=<your INGEST_TOKEN, from ~/.pulse/.env>
 PULSE_TZ=<your IANA timezone, e.g. Europe/Berlin>
-NOTES_REPO=notes
+NOTES_REPO=<absolute path of the notes repo checkout in the routine, or its folder name next to the pulse clone>
 NOTES_REPO_REMOTE=https://github.com/<you>/<notes-repo>.git
 GITHUB_TOKEN=<fine-grained PAT, contents read/write on the notes repo>
 ```

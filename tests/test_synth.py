@@ -134,6 +134,53 @@ def test_default_week_is_the_last_finished_one_even_on_a_sunday():
         common.datetime = old
 
 
+WEEKLY = """---
+type: weekly
+---
+
+# Week of Jun 8 to Jun 14, 2026
+
+Fixed the alerts.
+
+## What you worked on
+
+- **Web App** (2 days): shipped a faster home page
+
+## Sources
+
+Daily notes read: [[Pulse/Daily/2026-06/2026-06-08|Jun 8]]
+
+---
+
+Part of [[Pulse Weekly 2026-06|June 2026]]
+"""
+
+
+def weekly_lint(text: str) -> str:
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
+        f.write(text)
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+        code = sy.cmd_lint(type("A", (), {"notes": [f.name]}))
+    os.unlink(f.name)
+    assert (code == 0) == (err.getvalue() == ""), err.getvalue()
+    return err.getvalue()
+
+
+def test_weekly_lint():
+    assert weekly_lint(WEEKLY) == ""
+    assert weekly_lint(WEEKLY.replace("alerts.", "alerts.\n\n```\nlong \u2014 dash\n```")) == ""
+    for change, needle in (
+        (("## Sources", "### Sources"), "missing section: ## Sources"),
+        (("## Sources", "## Next week\n\n- plan\n\n## Sources"), "unexpected sections"),
+        (("Fixed the alerts.", "Kept leveraging the alerts."), "AI-tell phrase"),
+        (("Fixed the alerts.", "Fixed \u2014 the alerts."), "em/en dash"),
+        (("[[Pulse/Daily/2026-06/2026-06-08|Jun 8]]", "Jun 8"), "## Sources must link"),
+        (("\n---\n\nPart of [[Pulse Weekly 2026-06|June 2026]]\n", ""), "footer"),
+        (("# Week of Jun 8 to Jun 14, 2026\n", ""), "title"),
+    ):
+        assert needle in weekly_lint(WEEKLY.replace(*change)), needle
+
+
 def test_week_end_must_be_a_sunday():
     assert sy.resolve_week_end("2026-06-14", None).isoformat() == "2026-06-14"
     with contextlib.redirect_stderr(io.StringIO()) as err:

@@ -143,6 +143,9 @@ SKILL file.
      `prompt` and `response`), and
    - the open-loops JSON `/tmp/pulse-loops.json`.
 
+   Tell it that `row_ids` also lists trivial rows ("ok", "thanks") that were left
+   out of `buckets` on purpose, so an id with no event is not a missing row.
+
    Tell the subagent its job is to return `PASS`, or `FAIL` with the exact gaps,
    judging only against the raw rows (it must not invent or assume):
    - **Coverage of substance**: every project that has events in the JSON is
@@ -169,14 +172,15 @@ SKILL file.
    re-run step 7 (the gates) and re-review. Only proceed to step 8 on PASS. Do not
    push or mark a note the reviewer has not passed.
 
-8. **Carry forward, project pages, commit, push, mark.** Copy this note's new open items into the
-   newest daily note when this run is a backfill (it does nothing otherwise):
+8. **Carry forward, project pages, commit, push, mark.** When this run is a backfill,
+   bring every later daily note in line with it: its new open items are added to
+   them, and items it closed are removed from them (it does nothing otherwise):
 
    ```bash
    python3 skills/digest/digest.py carry-forward --note "<note_path>"
    ```
 
-   For every `CARRIED ... into <note>` line, lint that note
+   For every `CARRIED ... into <note>` or `CLOSED ... in <note>` line, lint that note
    (`digest.py lint "<note>"`). If it fails, fix only what lint names in that
    note, keeping the carried items, and re-lint.
 
@@ -191,7 +195,8 @@ SKILL file.
 
    In the notes repo, commit the note, the month hub and index from step 6,
    every note carry-forward changed, the project pages, and every relinked note. Push to its branch, then verify the push
-   landed (`HEAD` equals `origin/<branch>`). Only after that, mark the rows:
+   landed (`git ls-remote origin <branch>` shows the same SHA as `HEAD`). If git says there is nothing to commit, the files already match what is pushed: that is success, not a failure.
+   Only after that, mark the rows:
 
    ```bash
    python3 skills/digest/digest.py mark-processed --digest-json /tmp/pulse-digest.json
@@ -216,6 +221,8 @@ SKILL file.
   under the notes repo.
 - The mechanical gates (step 7) check form; the reviewer subagent (step 7b) checks
   truth. Both must pass before pushing. Never skip the reviewer on an unattended run.
-- Never mark a row processed until its note is confirmed pushed.
+- Never mark a row processed until its note is confirmed pushed. The one
+  exception is step 3: a day with only trivial prompts has no note, so its rows
+  are marked right away.
 
 $ARGUMENTS

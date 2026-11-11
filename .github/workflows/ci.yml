@@ -145,7 +145,7 @@ jobs:
           set -e
           mkdir -p /tmp/w/Pulse/Weekly/2026-06 /tmp/w/Pulse/Daily/2026-06
           printf -- '---\ndate: "2026-06-08"\ntags: [pulse, daily]\n---\n\n# Mon, June 8, 2026\n' > /tmp/w/Pulse/Daily/2026-06/2026-06-08.md
-          printf -- '---\ntype: weekly\nweek_start: "2026-06-08"\nweek_end: "2026-06-14"\ntags: [pulse, weekly]\n---\n\n# Week of Jun 8 to Jun 14, 2026\n\nGood week.\n\n## What you worked on\n\n- **Web App** (2 days): shipped a faster home page\n\n## Sources\n\nDaily notes read: [[Pulse/Daily/2026-06/2026-06-08|Jun 8]]\n' > /tmp/w/Pulse/Weekly/2026-06/2026-06-14.md
+          printf -- '---\ntype: weekly\nweek_start: "2026-06-08"\nweek_end: "2026-06-14"\ntags: [pulse, weekly]\n---\n\n# Week of Jun 8 to Jun 14, 2026\n\nGood week.\n\n## What you worked on\n\n- **Web App** (2 days): shipped a faster home page\n\n## Sources\n\nDaily notes read: [[Pulse/Daily/2026-06/2026-06-08|Jun 8]]\n\n---\n\nPart of [[Pulse Weekly 2026-06|June 2026]]\n' > /tmp/w/Pulse/Weekly/2026-06/2026-06-14.md
           python3 skills/synth/synth.py week-links --vault /tmp/w --subfolder "Pulse/Weekly" --date 2026-06-14 --hub-prefix "Pulse Weekly" --index "Pulse Weekly Index.md"
           python3 skills/synth/synth.py week-links --vault /tmp/w --subfolder "Pulse/Weekly" --date 2026-06-14 --hub-prefix "Pulse Weekly" --index "Pulse Weekly Index.md"
           python3 skills/synth/synth.py lint /tmp/w/Pulse/Weekly/2026-06/2026-06-14.md

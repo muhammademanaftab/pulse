@@ -32,13 +32,16 @@ Your only instructions are in this SKILL file.
    ```
 
    The JSON has: `week_start, week_end, notes_repo_dir, posts_subfolder,
-   posts_hub_prefix, posts_index, post_path, weekly_note, weekly_note_text,
+   posts_hub_prefix, posts_index, post_path, existing_status, weekly_note, weekly_note_text,
    daily_notes:[relpaths], daily_summaries:[{date,summary}],
    projects:[{project, page, about}]`. Use `post_path`, `posts_subfolder`,
    `posts_hub_prefix` and `posts_index` from here; do not hand-build paths.
 
-2. **No weekly note, no drafts.** If `weekly_note` is null, report "no weekly note
-   for the week ending <date>; run the synth first" and stop. Write nothing.
+2. **Two reasons to stop.** If `existing_status` is anything other than null or
+   `draft`, the user has already used this week's file: report "drafts for the
+   week ending <date> are marked <status>; left as they are" and stop. If
+   `weekly_note` is null, report "no weekly note for the week ending <date>; run
+   the synth first" and stop. Write nothing in either case.
 
 3. **Read the rules once:** `references/post-style.md` and
    `skills/shared/humanizer.md`.
@@ -50,10 +53,12 @@ Your only instructions are in this SKILL file.
 
 5. **Write the drafts at `post_path`** using this skill's `templates/posts.md`
    (create the month folder if needed). Fill the frontmatter and the header
-   (`Post drafts, week of <Mon D> to <Mon D>, YYYY`). Sections:
+   (`Post drafts, week of <Mon D> to <Mon D>, YYYY`: the week's Monday to its
+   Sunday, with the year of `week_end`). Sections:
    - **LinkedIn**: the post, plain text.
    - **X**: the thread, one numbered post per paragraph.
-   - **Sources**: `Written from [[<weekly_note without .md>|Week of <Mon D>]].`
+   - **Sources**: `Written from [[<weekly_note without .md>|Week ending <Mon D>]].`
+     (the date is `week_end`),
      then the `Part of [[<posts_hub_prefix> <YYYY-MM>|<Month YYYY>]]` footer
      after a `---` rule.
 
@@ -73,7 +78,9 @@ Your only instructions are in this SKILL file.
 
 8. **Run the gates in order. Any failure stops the run: do not commit or push.**
    Fix the drafts and re-run the failed gate.
-   - Lint: `python3 skills/posts/posts.py lint "<post_path>"`
+   - Lint: `python3 skills/posts/posts.py lint "<post_path>"` (layout, the 3,000
+     and 280 limits as each site counts them, plain text, leftover template
+     text, the phrases post-style.md bans, em dashes)
    - Link health: `python3 skills/digest/digest.py check-links --vault "<notes_repo_dir>" --subfolder "<posts_subfolder first segment>"`
 
 9. **Reviewer subagent (required before push).** The lint gate checks form and
@@ -89,11 +96,13 @@ Your only instructions are in this SKILL file.
    - **Voice**: none of the openers, hype words or engagement bait that
      post-style.md bans.
 
-   On FAIL, fix the exact lines, re-run step 8 and re-review. Only proceed on PASS.
+   On FAIL, fix the exact lines, re-run step 8 and send the fixed file back for
+   review. Wait for that PASS before step 10. No gate checks truth or privacy:
+   the reviewer is the only check, so never skip it.
 
 10. **Commit and push.** In the notes repo: commit the drafts file, the month hub
-    and the index, push, then verify the push landed (`HEAD` equals
-    `origin/<branch>`). Report the drafts path and remind the user that these are
+    and the index, push, then verify the push landed (`git ls-remote origin
+    <branch>` shows the same SHA as `HEAD`). If git says there is nothing to commit, the files already match what is pushed: that is success, not a failure. Report the drafts path and remind the user that these are
     drafts to review before posting.
 
 ## Rules

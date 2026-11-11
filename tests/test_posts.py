@@ -60,11 +60,56 @@ def test_good_draft_passes():
     assert po.lint_post(DRAFT) == [], po.lint_post(DRAFT)
 
 
-def test_template_has_the_sections_lint_wants():
+def test_unfilled_template_fails_lint():
     template = open(os.path.join(REPO, "skills", "posts", "templates", "posts.md"), encoding="utf-8").read()
     problems = po.lint_post(template)
-    assert not any("sections must be" in p or "status: draft" in p or "frontmatter" in p
-                   for p in problems), problems
+    assert not any("sections must be" in p or "status: draft" in p for p in problems), problems
+    assert any("placeholder" in p for p in problems) and any("week_end" in p for p in problems), problems
+
+
+def test_x_length_counts_links_and_wide_characters_like_x_does():
+    assert po.x_length("a" * 280) == 280
+    assert po.x_length("see https://example.com/" + "p" * 200) == 4 + 23
+    assert po.x_length("\U0001F680\U0001F680") == 4 and po.x_length("\u65e5\u672c") == 4
+    fails(DRAFT.replace("2/ Cause:", "2/ " + "a" * 215 + " \U0001F680\U0001F680 Cause:"), "as X counts them")
+    long_link = DRAFT.replace("Fix: one lock per job.", "Fix: https://example.com/" + "p" * 300)
+    assert po.lint_post(long_link) == [], po.lint_post(long_link)
+
+
+def test_first_comment_line_is_not_counted_and_cannot_be_the_whole_post():
+    body = DRAFT.replace("#buildinpublic", "x" * 2800 + "\n\nFirst comment: https://example.com/" + "y" * 300)
+    assert po.lint_post(body) == [], po.lint_post(body)
+    only = DRAFT[:DRAFT.index("Some of our")] + "First comment: https://example.com\n\n" + DRAFT[DRAFT.index("## X"):]
+    fails(only, "## LinkedIn is empty")
+
+
+def test_frontmatter_and_footer_are_checked():
+    fails(DRAFT.replace("type: posts", "type: weekly"), "type: posts")
+    fails(DRAFT.replace('week_end: "2026-06-14"\n', ""), "week_end")
+    fails(DRAFT.replace("status: draft", "status: posted\nstatus: draft"), "exactly one `status: draft`")
+    fails(DRAFT.replace("# Post drafts, week of Jun 8 to Jun 14, 2026\n", ""), "title")
+    fails(DRAFT.replace("[[Pulse/Weekly/2026-06/2026-06-14|Week of Jun 14]]", "[[Pulse Index]]"), "## Sources must link")
+    fails(DRAFT.replace("Part of [[Pulse Posts 2026-06|June 2026]]\n", ""), "footer")
+    quoted = DRAFT.replace("status: draft", 'status: "draft"')
+    assert po.lint_post(quoted) == [], po.lint_post(quoted)
+    assert po.lint_post("\ufeff" + DRAFT) == []
+
+
+def test_more_markdown_hype_and_hashtag_cases():
+    for markup in ("*italic* words", "__bold__ words", "~~gone~~", "[a link](https://x.com)", "<b>bold</b>"):
+        fails(DRAFT.replace("The cause was", markup + ". The cause was"), "plain text")
+    fails(DRAFT.replace("The cause was", "> quoted\n\nThe cause was"), "plain text")
+    for hype in ("I'm excited to share this.", "A real game-changer.", "Thoughts?", "It is 10x faster."):
+        fails(DRAFT.replace("The cause was", hype + " The cause was"), "post-style.md bans")
+    links = DRAFT.replace("#buildinpublic", " ".join(f"https://a.com/#s{i}" for i in range(6)) + " C# 5 * 3")
+    assert po.lint_post(links) == [], po.lint_post(links)
+    fails(DRAFT.replace("#buildinpublic", "#caf\u00e9 #\u00e9t\u00e9 #\u00fcber #\u65e5\u672c #\u00f1 #\u00df"), "hashtags")
+
+
+def test_quiet_week_form_passes():
+    quiet = DRAFT[:DRAFT.index("Some of our")] + "No post this week: only dependency bumps.\n\n## X\n\n" \
+        "1/ No post this week.\n\n" + DRAFT[DRAFT.index("## Sources"):]
+    assert po.lint_post(quiet) == [], po.lint_post(quiet)
 
 
 def test_length_limits():
@@ -135,7 +180,13 @@ def test_collect_gathers_the_week():
     assert got["week_start"] == "2026-06-08" and got["weekly_note"] == "Pulse/Weekly/2026-06/2026-06-14.md", got
     assert "Fixed alerts." in got["weekly_note_text"], got
     assert got["daily_notes"] == ["Pulse/Daily/2026-06/2026-06-09.md"], got
-    assert got["post_path"] == os.path.join(root, "Pulse/Posts", "2026-06", "2026-06-14.md"), got
+    assert got["post_path"] == os.path.join(os.path.realpath(root), "Pulse/Posts", "2026-06", "2026-06-14.md") \
+        or got["post_path"] == os.path.join(root, "Pulse/Posts", "2026-06", "2026-06-14.md"), got
+    assert got["existing_status"] is None, got
+    os.makedirs(os.path.dirname(got["post_path"]))
+    with open(got["post_path"], "w", encoding="utf-8") as f:
+        f.write(DRAFT.replace("status: draft", "status: posted"))
+    assert collect(root, "2026-06-14")["existing_status"] == "posted"
     assert got["posts_hub_prefix"] == "Pulse Posts" and got["posts_index"] == "Pulse Posts Index.md", got
     assert got["projects"] == [
         {"project": "Web App", "page": "Pulse/Projects/Web App.md", "about": "The customer site."},

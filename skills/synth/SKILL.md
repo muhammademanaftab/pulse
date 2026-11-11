@@ -59,7 +59,8 @@ this SKILL file.
    buckets:{<Project>:{days:[...], bold, rendered, entries:[{date,bullets:[...]}]}},
    open_loops:[<latest Open loops line per item this week>]`.
    The `rendered` field is the correctly linked label (`[[Project]]` if a project
-   note exists, else `**Project**`). **Always use `rendered`; never hand-type a
+   note exists, else `**Project**`). Ignore `bold`: it only records how the daily
+   note wrote the heading. **Always use `rendered`; never hand-type a
    `[[wikilink]]`.**
 
 5. **Read the rules once** before writing any line:
@@ -70,7 +71,8 @@ this SKILL file.
 6. **Write the weekly note at `weekly_note_path`** from the two JSON files, using
    this skill's `templates/weekly-note.md` (create the month folder if needed).
    Fill the frontmatter (`week_start`, `week_end`, `notes_scanned`) and the header
-   (`Week of <Mon D> to <Mon D>, YYYY`). Sections:
+   (`Week of <Mon D> to <Mon D>, YYYY`: the week's Monday to its Sunday, with the
+   year of `week_end`). Sections:
    - **Headline**: one sentence answering "what was this week about?" Pull from the
      biggest outcomes across `daily_summaries` and the buckets.
    - **What you worked on**: one bullet per project that earned it, using each
@@ -78,10 +80,13 @@ this SKILL file.
      real thread, per signal-vs-noise.md. Rewrite in your own words; do not quote
      daily bullets.
    - **What I skipped (and why)**: any project in `buckets` you did not give a
-     worked-on line, one each with a short reason. Every non-`Misc` project in the
+     worked-on line, one bullet each, starting with its `rendered` label, then a
+     short reason. Every non-`Misc` project in the
      buckets must appear either here or in "What you worked on" (the coverage gate
      checks this). "Nothing skipped." if there is nothing.
-   - **One number to remember**: a single concrete metric from the week.
+   - **One number to remember**: a single concrete metric from the week. Every
+     figure in it must appear in this week's buckets; never reuse a number from
+     an earlier week.
    - **Sources**: link every note in `notes` (full-path wikilink with a `Mon D`
      alias), then the `Part of [[<weekly_hub_prefix> <YYYY-MM>|<Month YYYY>]]`
      footer after a `---` rule.
@@ -108,7 +113,10 @@ this SKILL file.
    ```
 
 9. **Run the gates in order. Any failure stops the run: do not commit or push.**
-   Fix the note and re-run the failed gate.
+   Fix the note and re-run the failed gate. Lint checks the title, the sections,
+   the Sources links and footer, em dashes and AI vocabulary. Coverage wants each
+   project's name at the start of a bullet in "What you worked on" or "What I
+   skipped (and why)".
    - Lint: `python3 skills/synth/synth.py lint "<weekly_note_path>"`
    - Coverage: `python3 skills/synth/synth.py coverage --buckets /tmp/pulse-buckets.json --weekly-note "<weekly_note_path>"`
    - Link health: `python3 skills/digest/digest.py check-links --vault "<notes_repo_dir>" --subfolder "<weekly_subfolder first segment>"`
@@ -131,11 +139,12 @@ this SKILL file.
    - **No false "nothing skipped"**: if a project was dropped, it is acknowledged.
 
    If the reviewer returns FAIL, fix the note for the exact gaps, then re-run step 9
-   (the gates) and re-review. Only proceed on PASS.
+   (the gates) and send the fixed note back for review. Wait for that PASS before
+   step 10; never push on your own check.
 
 10. **Commit and push.** In the notes repo: commit the weekly note, the month hub,
-    and the index, push to the branch, then verify the push landed (`HEAD` equals
-    `origin/<branch>`). There is nothing to mark processed; if the push fails, the
+    and the index, push to the branch, then verify the push landed
+    (`git ls-remote origin <branch>` shows the same SHA as `HEAD`). If git says there is nothing to commit, the files already match what is pushed: that is success, not a failure. There is nothing to mark processed; if the push fails, the
     next run regenerates the same note and retries.
 
 ## Rules

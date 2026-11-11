@@ -83,6 +83,35 @@ def test_no_match_returns_no_hits_and_stopwords_are_ignored():
     assert search("what", "did", "we", "the")["query_terms"] == []
 
 
+def test_word_forms_fold_together():
+    for a, b in (("deployment", "deploy"), ("failure", "failed"), ("stopped", "stop"), ("running", "run"),
+                 ("retried", "retry"), ("retries", "retry"), ("migration", "migrate"),
+                 ("addresses", "address"), ("statuses", "status"), ("processes", "process"),
+                 ("fixes", "fix"), ("fixing", "fixed"), ("caching", "cache"), ("invoices", "invoice"),
+                 ("notes", "note"), ("login", "signin")):
+        assert rc.fold(a) == rc.fold(b), (a, rc.fold(a), b, rc.fold(b))
+    assert rc.fold("note") != rc.fold("not")
+
+
+def test_names_are_found_by_their_parts_and_joined_forms():
+    keys = rc.index("Bug: export_job.py crashed on Fly.io. Fix: pin v1.2.0 for the sign-in flow.")
+    for query in ("export", "export_job", "fly", "1.2.0", "v1.2.0", "login", "sign-in", "signin", "crash"):
+        assert rc.found(query, keys), query
+    for query in ("bug", "fix", "exports_jobs_missing", "kubernetes"):
+        assert not rc.found(query, keys), query
+
+
+def test_type_words_in_the_question_do_not_swamp_the_ranking():
+    hits = search("fix", "alerts", "bug", type=["bug", "decided"])["hits"]
+    assert hits[0]["type"] == "bug" and "alerts never arrived" in hits[0]["text"], hits
+    assert all(h["score"] == 2 for h in hits if h["type"] == "bug"), hits
+
+
+def test_project_filter_ignores_punctuation():
+    assert rc.plain("billing v2") in rc.plain("Billing (v2)")
+    assert search(project="web-app")["total_hits"] > 0
+
+
 def search_error(*query, **kw) -> str:
     args = type("A", (), {"query": list(query), "vault": kw.get("vault", ROOT), "project": None,
                           "type": None, "since": kw.get("since"), "until": kw.get("until"),

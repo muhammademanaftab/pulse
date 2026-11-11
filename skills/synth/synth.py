@@ -25,9 +25,11 @@ from datetime import timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
-    DASH_RE, cfg_get, get_tz, h2_body, link_into_hubs, load_config, notes_repo_dir,
+    BANNED_RE, DASH_RE, cfg_get, get_tz, h2_body, link_into_hubs, load_config, notes_repo_dir,
     parse_note, read_note, render_label, resolve_week_end, strip_code_blocks, strip_code, utf8_stdio)
 
+WEEKLY_SECTIONS = ["## What you worked on", "## What I skipped (and why)",
+                   "## One number to remember", "## Sources"]
 COVERAGE_SECTIONS = ["## What you worked on", "## What I skipped (and why)"]
 LOOP_RE = re.compile(r"^- \[( |x|X)\] (.+?)\s*\([^()]*(?:\([^()]*\)[^()]*)*since [^()]*\)\s*$")
 
@@ -152,12 +154,28 @@ def cmd_lint(args) -> int:
         else:
             if not raw.lstrip().startswith("---"):
                 problems.append("missing YAML frontmatter")
+            body = strip_code_blocks(raw)
+            h2s = [m.group(1).rstrip() for m in re.finditer(r"^(## .*)$", body, re.M)]
             for sec in ("## What you worked on", "## Sources"):
-                if sec not in raw:
+                if sec not in h2s:
                     problems.append(f"missing section: {sec}")
-            for i, line in enumerate(raw.splitlines(), 1):
-                if DASH_RE.search(strip_code(line)):
+            extra = [h for h in h2s if h not in WEEKLY_SECTIONS]
+            if extra:
+                problems.append(f"unexpected sections {extra} (allowed: {WEEKLY_SECTIONS})")
+            if not re.search(r"^# \S", body, re.M):
+                problems.append("missing the `# Week of ...` title")
+            sources, _, footer = (h2_body(body, "## Sources") or "").partition("\n---")
+            if "[[" not in sources:
+                problems.append("## Sources must link the daily notes that were read")
+            if "## Sources" in h2s and "Part of [[" not in footer:
+                problems.append("missing the `Part of [[<weekly hub>|<Month YYYY>]]` footer "
+                                "after a `---` rule")
+            for i, line in enumerate(body.splitlines(), 1):
+                text = strip_code(line)
+                if DASH_RE.search(text):
                     problems.append(f"line {i}: em/en dash in body")
+                if (w := BANNED_RE.search(text)):
+                    problems.append(f"line {i}: AI-tell phrase {w.group(0)!r} (see humanizer.md)")
         if problems:
             failed = True
             print(f"FAIL {note}", file=sys.stderr)

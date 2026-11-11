@@ -20,7 +20,7 @@ tags: [pulse, posts]
 
 ## Sources
 
-Written from [[<weekly_note without .md>|Week of <SUN_DAY>]].
+Written from [[<weekly_note without .md>|Week ending <SUN_DAY>]].
 
 ---
 

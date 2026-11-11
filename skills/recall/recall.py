@@ -27,23 +27,75 @@ TYPES = ["outcome", "decided", "bug", "rule", "learned", "open", "refs", "result
 PREFIX_RE = re.compile(r"^(Outcome|Decided|Bug|Rule|Learned|Open|Refs): ")
 WORD_RE = re.compile(r"[^\W_][\w.#/-]*")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+LABEL_RE = re.compile(r"\b(?:Outcome|Decided|Why|Rejected|Bug|Cause|Fix|Rule|Learned|Open|Refs):")
+SPLIT_RE = re.compile(r"[._/#-]+")
 STOPWORDS = set("""a about an and are as at be been by did do does for from had has have how i in
 is it me my of on or our that the then this to was we were what when where which who why
 with you""".split())
-
-
-def terms(text: str) -> list[str]:
-    seen = dict.fromkeys(w.rstrip(".") for w in WORD_RE.findall(text.lower()))
-    return [w for w in seen if w and w not in STOPWORDS]
+ALIASES = {"login": "signin", "logon": "signin", "logout": "signout"}
+SUFFIXES = (("ment", ""), ("ation", "at"), ("ion", ""), ("ure", ""), ("ing", ""), ("ed", ""))
 
 
 def stem(word: str) -> str:
-    """Crude plural/tense fold so "fixed" finds "fix" and "alerts" finds "alert"."""
-    for suffix in ("ing", "ed", "es", "s"):
+    """Fold plurals and tenses so "fixed" finds "fix" and "deployment" finds "deploy"."""
+    if len(word) <= 3:
+        return word
+    if word.endswith("sses"):
+        word = word[:-2]
+    elif word.endswith(("ies", "ied")):
+        word = word[:-3] + "y"
+    elif word.endswith("es") and word[:-2].endswith(("x", "z", "s", "ch", "sh")):
+        word = word[:-2]
+    elif word.endswith("s") and not word.endswith(("ss", "us", "is")):
+        word = word[:-1]
+    for suffix, keep in SUFFIXES:
         if word.endswith(suffix) and len(word) - len(suffix) >= 3:
-            word = word[:-len(suffix)]
+            word = word[:-len(suffix)] + keep
             break
-    return word[:-1] if word.endswith("e") and len(word) > 3 else word
+    if len(word) > 3 and word[-1] == word[-2] and word[-1] not in "aeiouls":
+        word = word[:-1]
+    return word[:-1] if word.endswith("e") and len(word) > 4 else word
+
+
+def fold(word: str) -> str:
+    return stem(ALIASES.get(word, word))
+
+
+def tokens(text: str) -> list[str]:
+    seen = dict.fromkeys(w.rstrip(".") for w in WORD_RE.findall(text.lower()))
+    return [w for w in seen if len(w) > 1 and w not in STOPWORDS]
+
+
+def terms(text: str) -> list[str]:
+    return tokens(text)
+
+
+def pieces(token: str) -> list[str]:
+    return [p for p in SPLIT_RE.split(token) if len(p) > 1 and p not in STOPWORDS]
+
+
+def variants(token: str) -> set[str]:
+    out = {token, SPLIT_RE.sub("", token)}
+    if re.match(r"v\d", token):
+        out.add(token[1:])
+    return {fold(v) for v in out if v}
+
+
+def index(text: str) -> set[str]:
+    """Every form a line can be found by: whole words, their joined form and their parts."""
+    keys: set[str] = set()
+    for token in tokens(LABEL_RE.sub(" ", text)):
+        keys |= variants(token) | {fold(p) for p in pieces(token)}
+    return keys
+
+
+def found(term: str, keys: set[str]) -> bool:
+    parts = [fold(p) for p in pieces(term)]
+    return bool(variants(term) & keys) or (len(parts) > 1 and all(p in keys for p in parts))
+
+
+def plain(text: str) -> str:
+    return re.sub(r"[\W_]+", " ", text.lower()).strip()
 
 
 def entries(path: str, vault: str):
@@ -68,10 +120,9 @@ def entries(path: str, vault: str):
 
 
 def score(entry: dict, query: list[str]) -> int:
-    """Query terms found in the line (2 each) or only in its project name (1 each)."""
-    words = {stem(w) for w in terms(entry["text"])}
-    name = {stem(w) for w in terms(entry["project"] or "")}
-    return sum(2 if stem(q) in words else 1 if stem(q) in name else 0 for q in query)
+    """Two points for each query term found in the line or in its project name."""
+    keys = index(entry["text"]) | index(entry["project"] or "")
+    return sum(2 for q in query if found(q, keys))
 
 
 def valid_date(value: str | None) -> bool:
@@ -104,7 +155,7 @@ def cmd_search(args) -> int:
         return fail(f"no daily notes folder at {daily_dir}; check notes_repo and "
                     "vault_subfolder in ~/.pulse/config.yaml")
     query = terms(" ".join(args.query))
-    project = args.project.lower() if args.project else None
+    project = plain(args.project) if args.project else None
     filtered = bool(args.type or project or args.since or args.until)
     unusable = bool(args.query) and not query and not filtered
 
@@ -117,7 +168,7 @@ def cmd_search(args) -> int:
         for e in entries(path, vault):
             if args.type and e["type"] not in args.type:
                 continue
-            if project and project not in (e["project"] or "").lower():
+            if project and project not in plain(e["project"] or ""):
                 continue
             s = score(e, query)
             if query and s == 0:
@@ -131,7 +182,9 @@ def cmd_search(args) -> int:
         if key not in seen:
             seen.add(key)
             unique.append(h)
-    out = {"vault": vault, "notes_in_vault": len(notes), "notes_searched": searched,
+    out = {"vault": vault,
+           "projects_dir": cfg_get(cfg, "projects_subfolder", "PULSE_PROJECTS_SUBFOLDER", "Pulse/Projects"),
+           "notes_in_vault": len(notes), "notes_searched": searched,
            "query_terms": query,
            "total_hits": len(unique), "hits": unique[:args.limit]}
     print(json.dumps(out, ensure_ascii=False))

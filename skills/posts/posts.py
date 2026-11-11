@@ -21,7 +21,7 @@ from datetime import timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
-    BANNED_RE, DASH_RE, cfg_get, get_tz, h2_body, link_into_hubs, load_config, notes_repo_dir,
+    BANNED_RE, DASH_RE, UNSAFE_LABEL_RE, cfg_get, get_tz, h2_body, link_into_hubs, load_config, notes_repo_dir,
     parse_note, read_note, resolve_week_end, strip_code_blocks, utf8_stdio)
 
 LINKEDIN_MAX = 3000
@@ -29,8 +29,14 @@ TWEET_MAX = 280
 HASHTAG_MAX = 5
 SECTIONS = ["## LinkedIn", "## X", "## Sources"]
 ABOUT_RE = re.compile(r"^# [^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
-MARKUP_RE = re.compile(r"\[\[|\*\*|`|^#{1,6} ", re.M)
-HASHTAG_RE = re.compile(r"(?<!\w)#[A-Za-z]\w*")
+MARKUP_RE = re.compile(
+    r"\[\[|\*\*|__|~~|`|\]\(|</?[a-zA-Z][^>\n]*>|\*[^\s*][^*\n]*\*|^#{1,6} |^> ", re.M)
+PLACEHOLDER_RE = re.compile(r"(?:^|/ )<[^<>\n]+>\s*$", re.M)
+HASHTAG_RE = re.compile(r"(?<![\w/])#[^\W\d_]\w*")
+URL_RE = re.compile(r"https?://\S+")
+HYPE_RE = re.compile(
+    r"excited to share|thrilled to announce|game[- ]changer|revolutionary|supercharge|\b10x\b"
+    r"|comment below|\bthoughts\?|\bagree\?", re.I)
 TWEET_RE = re.compile(r"^(\d+)/ \S")
 
 
@@ -64,16 +70,20 @@ def cmd_collect(args) -> int:
         summary, blocks = parse_note(strip_code_blocks(read_note(os.path.join(repo, rel))))
         if summary:
             summaries.append({"date": iso, "summary": summary})
-        labels += [b["project"] for b in blocks if b["project"] not in labels]
+        labels += [b["project"] for b in blocks if b["project"] not in labels + ["Misc"]]
     pages = []
     for label in labels:
         rel = f"{projects}/{label}.md"
-        if os.path.isfile(os.path.join(repo, rel)):
-            about = ABOUT_RE.search(read_note(os.path.join(repo, rel)))
-            pages.append({"project": label, "page": rel,
-                          "about": about.group(1).strip() if about else ""})
-        else:
+        if UNSAFE_LABEL_RE.search(label) or ".." in label or not os.path.isfile(os.path.join(repo, rel)):
             pages.append({"project": label, "page": None, "about": ""})
+            continue
+        about = ABOUT_RE.search(read_note(os.path.join(repo, rel)))
+        about = about.group(1).strip() if about else ""
+        pages.append({"project": label, "page": rel,
+                      "about": "" if about == "About: not written yet." else about})
+    post_path = os.path.join(repo, posts, ym, f"{end}.md")
+    status = (re.search(r"^status:[ \t]*[\"']?([^\"'\n]*)", read_note(post_path), re.M)
+              if os.path.isfile(post_path) else None)
 
     print(json.dumps({
         "week_start": week_start.isoformat(),
@@ -82,7 +92,8 @@ def cmd_collect(args) -> int:
         "posts_subfolder": posts,
         "posts_hub_prefix": hub_prefix,
         "posts_index": index,
-        "post_path": os.path.join(repo, posts, ym, f"{end}.md"),
+        "post_path": post_path,
+        "existing_status": status.group(1).strip() if status else None,
         "weekly_note": weekly_rel if has_weekly else None,
         "weekly_note_text": read_note(os.path.join(repo, weekly_rel)) if has_weekly else "",
         "daily_notes": notes,
@@ -100,24 +111,45 @@ def tweets(body: str) -> list[str]:
     return [p.strip() for p in re.split(r"\n\s*\n", body.strip()) if p.strip()]
 
 
+def x_length(text: str) -> int:
+    """Length the way X counts it: a link is 23, and emoji, CJK and other wide
+    characters are 2 each."""
+    text = URL_RE.sub("x" * 23, text)
+    return sum(1 if ord(c) <= 0x10FF or 0x2000 <= ord(c) <= 0x200D
+               or 0x2010 <= ord(c) <= 0x201F or 0x2032 <= ord(c) <= 0x2037 else 2 for c in text)
+
+
 def lint_post(raw: str) -> list[str]:
     problems = []
+    raw = raw.lstrip("\ufeff")
     fm = re.match(r"^---\n(.*?)\n---\n", raw.lstrip(), re.S)
     if not fm:
         problems.append("missing YAML frontmatter")
-    elif not re.search(r"^status: draft\s*$", fm.group(1), re.M):
-        problems.append("frontmatter needs `status: draft` (Pulse only writes drafts)")
+    else:
+        fields = dict(re.findall(r"^(\w+):[ \t]*(.*?)[ \t]*$", fm.group(1), re.M))
+        statuses = re.findall(r"^status:", fm.group(1), re.M)
+        if len(statuses) != 1 or fields.get("status", "").strip("\"'") != "draft":
+            problems.append("frontmatter needs exactly one `status: draft` (Pulse only writes drafts)")
+        if fields.get("type") != "posts":
+            problems.append("frontmatter needs `type: posts`")
+        for key in ("week_start", "week_end"):
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", fields.get(key, "").strip("\"'")):
+                problems.append(f"frontmatter `{key}` must be a date as YYYY-MM-DD")
+    if not re.search(r"^# \S", raw, re.M):
+        problems.append("missing the `# Post drafts, week of ...` title")
     h2s = [m.group(1).rstrip() for m in re.finditer(r"^(## .*)$", raw, re.M)]
     if h2s != SECTIONS:
         problems.append(f"sections must be exactly {SECTIONS} in that order, got {h2s}")
         return problems
 
-    linkedin = (h2_body(raw, "## LinkedIn") or "").strip()
+    section = (h2_body(raw, "## LinkedIn") or "").strip()
+    linkedin = "\n".join(ln for ln in section.splitlines()
+                         if not ln.startswith("First comment:")).strip()
     if not linkedin:
         problems.append("## LinkedIn is empty")
     if len(linkedin) > LINKEDIN_MAX:
         problems.append(f"## LinkedIn is {len(linkedin)} characters (max {LINKEDIN_MAX})")
-    if len(HASHTAG_RE.findall(linkedin)) > HASHTAG_MAX:
+    if len(HASHTAG_RE.findall(URL_RE.sub("", linkedin))) > HASHTAG_MAX:
         problems.append(f"## LinkedIn has more than {HASHTAG_MAX} hashtags")
 
     thread = tweets(h2_body(raw, "## X") or "")
@@ -126,16 +158,26 @@ def lint_post(raw: str) -> list[str]:
     for n, tweet in enumerate(thread, 1):
         m = TWEET_RE.match(tweet)
         if not m or int(m.group(1)) != n:
-            problems.append(f"## X post {n} must start with `{n}/ ` "
-                            f"(one post per paragraph, numbered in order): {tweet[:50]!r}")
-        if len(tweet) > TWEET_MAX:
-            problems.append(f"## X post {n} is {len(tweet)} characters (max {TWEET_MAX})")
+            problems.append(f"## X post {n} must start with `{n}/ ` (one post per paragraph, "
+                            f"a blank line between posts, numbered in order): {tweet[:50]!r}")
+        if x_length(tweet) > TWEET_MAX:
+            problems.append(f"## X post {n} is {x_length(tweet)} characters as X counts them "
+                            f"(max {TWEET_MAX})")
 
-    for name, body in (("## LinkedIn", linkedin), ("## X", "\n\n".join(thread))):
+    for name, body in (("## LinkedIn", section), ("## X", "\n\n".join(thread))):
         if (m := MARKUP_RE.search(body)):
             problems.append(f"{name} must be plain text ready to paste, found {m.group(0).strip()!r}")
-    if "[[" not in re.split(r"^---\s*$", h2_body(raw, "## Sources") or "", flags=re.M)[0]:
-        problems.append("## Sources must link the weekly note it was written from")
+        if (m := PLACEHOLDER_RE.search(body)):
+            problems.append(f"{name} still has template placeholder text: {m.group(0).strip()!r}")
+        if (m := HYPE_RE.search(body)):
+            problems.append(f"{name} uses a phrase post-style.md bans: {m.group(0)!r}")
+    sources, _, footer = (h2_body(raw, "## Sources") or "").partition("\n---")
+    week_end = fields.get("week_end", "").strip("\"'") if fm else ""
+    if not re.search(r"\[\[[^\]]*" + re.escape(week_end or "\0") + r"[^\]]*\]\]", sources):
+        problems.append("## Sources must link the weekly note it was written from "
+                        "(the one for this file's `week_end`)")
+    if "Part of [[" not in footer:
+        problems.append("missing the `Part of [[<posts hub>|<Month YYYY>]]` footer after a `---` rule")
     for i, line in enumerate(raw.splitlines(), 1):
         if DASH_RE.search(line):
             problems.append(f"line {i}: em/en dash")
