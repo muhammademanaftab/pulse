@@ -8,7 +8,8 @@ map. Eman drives the work directly in conversation.
 Pulse is an open-source memory engine for AI-assisted work, built around Claude Code. It
 captures every Claude Code turn to the user's own Convex deployment, then a nightly
 digest turns each day into an Obsidian-style daily note in the user's notes git repo.
-Future: a weekly synthesizer and output heads (devlog, standup, brag doc). It is a
+A weekly synthesizer rolls the daily notes into one weekly note. Future: output
+heads (devlog, standup, brag doc). It is a
 genericized public extraction of a private agent pipeline.
 
 Built by Muhammad Eman Aftab (GitHub: muhammademanaftab). Solo project.
@@ -26,7 +27,7 @@ digest SKILL" (notes), matching how Eman actually runs it.
   (re-runnable, stdlib only). install.py deploys the backend, writes `~/.pulse/.env`,
   copies capture.py to `~/.claude/hooks/pulse-capture.py`, and safely merges the `Stop`
   hook into `settings.json`. The user only does the Convex browser login.
-- **Backend (L1):** `convex-backend/` is a per-user Convex deployment. A `prompts`
+- **Backend (L1):** `backend/` is a per-user Convex deployment. A `prompts`
   table + HTTP API (`/ingest`, `/unprocessed`, `/all`, `/mark-processed`), Bearer
   auth via `INGEST_TOKEN`.
 - **Digest (L3):** `skills/digest/digest.py` (subcommands `fetch`, `render-block`,
@@ -34,8 +35,15 @@ digest SKILL" (notes), matching how Eman actually runs it.
   LLM runbook, read by the routine; paths are repo-relative). Writes an Obsidian daily
   note to the user's notes repo, links it into a month hub + index, runs the three
   gates and a reviewer subagent, then commits/pushes and marks rows processed.
-- **Nightly:** `routines/` holds claude.ai cloud routines (`digest.md`) that clone the
-  repo and run the digest with the machine off.
+- **Synth (L4):** `skills/synth/synth.py` (`collect`, `buckets`, `week-links`, `lint`,
+  `coverage`) + `skills/synth/SKILL.md`. Reads the week's daily notes, never Convex.
+- **Routines:** `routines/` holds claude.ai cloud routines (`digest.md` nightly,
+  `synth.md` weekly) that clone the repo at a pinned tag and run with the machine off.
+- **Shared:** `skills/shared/common.py` holds what digest and synth both need (config,
+  timezone, the linking rule, hub + index wiring); `skills/shared/humanizer.md` is the
+  one tone guide. A new skill is one folder under `skills/` that imports `common`.
+- **Tests:** `tests/test_*.py`, plain asserts, run each file directly with `python3`.
+- Scripts are stdlib only and must run on Python 3.9 (the macOS system `python3`).
 
 Rules that are the product: the daily note is derived (regenerate-and-overwrite);
 linking is existence-based (`[[Project]]` only if the note exists, so no dead links);
@@ -72,4 +80,5 @@ its note is confirmed pushed.
   commas, periods, colons, parentheses.
 - Plain English, no hype words.
 - Keep it concrete, not granular: few files, one script per skill, no unused code.
+  Code two skills share goes in `skills/shared/common.py`, never copied.
 - Assume every commit message and file will be read by strangers.

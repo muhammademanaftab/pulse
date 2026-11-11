@@ -22,8 +22,8 @@ Run everything from the repo root. Do the phases in order.
    in their terminal (the `! ` prefix runs in this session), then re-run the script:
 
    ```
-   ! cd convex-backend && npx convex login
-   ! cd convex-backend && npx convex dev --once --dev-deployment cloud
+   ! cd backend && npx convex login
+   ! cd backend && npx convex dev --once --dev-deployment cloud
    ```
 
    The second asks them to pick a team and name the project (suggest `pulse`).

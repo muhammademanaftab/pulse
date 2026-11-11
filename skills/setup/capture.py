@@ -15,6 +15,8 @@ install. Never raises into the session: all work is wrapped, failures are logged
 to ~/.pulse/capture.log, and the hook always exits 0 with no stdout. If the env
 file is missing (capture not set up yet), it no-ops cleanly.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 import os

@@ -14,21 +14,20 @@ Convex. Config comes from ~/.pulse/config.yaml (env vars win). A project links
 as [[Project]] only when its note exists in projects_dir, else plain **bold**
 (no dead links), the same existence rule the digest uses.
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import re
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
-MONTHS = ["January", "February", "March", "April", "May", "June", "July",
-          "August", "September", "October", "November", "December"]
-MON_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
-            "Oct", "Nov", "Dec"]
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
+from common import (  # noqa: E402
+    DASH_RE, cfg_get, get_tz, link_into_hubs, load_config, render_label,
+    strip_code, utf8_stdio)
 
-DASH_RE = re.compile(r"[—–]")
-FENCE_RE = re.compile(r"```.*?```", re.S)
-CODE_RE = re.compile(r"`[^`\n]*`")
 # Work-log headings the digest writes: `### [[Project]]` or `### **Project**`.
 HEADING_RE = re.compile(
     r"^###\s+(?:\[\[(?P<link>[^\]#|]+)(?:[#|][^\]]*)?\]\]|\*\*(?P<bold>[^*]+)\*\*)")
@@ -36,63 +35,6 @@ ANY_H3_RE = re.compile(r"^###\s")
 H2_RE = re.compile(r"^##\s")
 BULLET_RE = re.compile(r"^\s*-\s+(.*)$")
 LOOP_RE = re.compile(r"^- \[( |x|X)\] (.+?)\s*\([^()]*(?:\([^()]*\)[^()]*)*since [^()]*\)\s*$")
-
-
-def strip_code(text: str) -> str:
-    return CODE_RE.sub("", FENCE_RE.sub("", text))
-
-
-# --- config -----------------------------------------------------------------
-
-def pulse_home() -> str:
-    return os.path.expanduser(os.environ.get("PULSE_HOME", "~/.pulse"))
-
-
-def read_config(path: str) -> dict:
-    cfg: dict = {}
-    if not os.path.isfile(path):
-        return cfg
-    try:
-        for line in open(path, encoding="utf-8"):
-            line = line.split("#", 1)[0].strip()
-            if not line or ":" not in line:
-                continue
-            k, v = line.split(":", 1)
-            k, v = k.strip(), v.strip().strip('"').strip("'")
-            if v:
-                cfg[k] = v
-    except Exception:
-        pass
-    return cfg
-
-
-def cfg_get(cfg: dict, key: str, env: str | None, default: str) -> str:
-    if env and os.environ.get(env):
-        return os.environ[env]
-    return cfg.get(key, default)
-
-
-def get_tz(cfg: dict):
-    name = cfg_get(cfg, "timezone", "PULSE_TZ", "UTC")
-    if name and name != "UTC":
-        try:
-            from zoneinfo import ZoneInfo
-            return ZoneInfo(name)
-        except Exception:
-            # Windows Python ships no tz database; without this the day window
-            # would silently shift to UTC.
-            print(f"warning: unknown timezone {name!r}, using UTC "
-                  "(on Windows: pip install tzdata)", file=sys.stderr)
-    return timezone.utc
-
-
-# --- linking rule (existence-based, same as the digest) ---------------------
-
-def render_label(label: str, projects_dir: str | None) -> str:
-    if projects_dir and os.path.isfile(
-            os.path.join(os.path.expanduser(projects_dir), f"{label}.md")):
-        return f"[[{label}]]"
-    return f"**{label}**"
 
 
 # --- collect (subcommand) ---------------------------------------------------
@@ -111,7 +53,7 @@ def resolve_week_end(arg: str | None, tz) -> date:
 
 
 def cmd_collect(args) -> int:
-    cfg = read_config(os.path.join(pulse_home(), "config.yaml"))
+    cfg = load_config()
     tz = get_tz(cfg)
     week_end = resolve_week_end(args.week_end, tz)
     week_start = week_end - timedelta(days=6)
@@ -264,66 +206,8 @@ def cmd_buckets(args) -> int:
 
 # --- week-links (subcommand) ------------------------------------------------
 
-def _upsert_list(text: str, heading: str, new_line: str, reverse: bool = False):
-    if new_line in text:
-        return text, False
-    lines = text.split("\n")
-    try:
-        h = lines.index(heading)
-    except ValueError:
-        return text.rstrip("\n") + f"\n\n{heading}\n\n{new_line}\n", True
-    i = h + 1
-    while i < len(lines) and lines[i].strip() == "":
-        i += 1
-    start = i
-    while i < len(lines) and lines[i].startswith("- "):
-        i += 1
-    lines[start:i] = sorted(set(lines[start:i] + [new_line]), reverse=reverse)
-    out = "\n".join(lines)
-    return (out if out.endswith("\n") else out + "\n"), True
-
-
 def cmd_week_links(args) -> int:
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
-        print(f"ERROR: --date must be YYYY-MM-DD, got {args.date!r}", file=sys.stderr)
-        return 1
-    vault = os.path.abspath(os.path.expanduser(args.vault))
-    ym = args.date[:7]
-    y, m = ym.split("-")
-    mname = f"{MONTHS[int(m) - 1]} {y}"
-    sub = args.subfolder.strip("/")
-    hub_name = f"{args.hub_prefix} {ym}"
-    hub_path = os.path.join(vault, sub, ym, f"{hub_name}.md")
-    index_path = os.path.join(vault, sub, args.index)
-    index_stem = os.path.splitext(args.index)[0]
-    d = datetime.strptime(args.date, "%Y-%m-%d")
-    label = f"Week of {MON_ABBR[d.month - 1]} {d.day}"
-
-    if not os.path.isfile(hub_path):
-        os.makedirs(os.path.dirname(hub_path), exist_ok=True)
-        open(hub_path, "w", encoding="utf-8", newline="\n").write(
-            f"---\ntype: weekly-hub\nmonth: \"{ym}\"\ntags: [pulse, hub]\n---\n\n"
-            f"# {args.hub_prefix} notes, {mname}\n\nPart of [[{index_stem}]].\n\n## Weeks\n")
-        print(f"CREATED hub {hub_path}")
-    week_link = f"- [[{sub}/{ym}/{args.date}|{label}]]"
-    text, changed = _upsert_list(open(hub_path, encoding="utf-8").read(), "## Weeks", week_link)
-    if changed:
-        open(hub_path, "w", encoding="utf-8", newline="\n").write(text)
-        print(f"LINKED {args.date} in {os.path.basename(hub_path)}")
-
-    if not os.path.isfile(index_path):
-        os.makedirs(os.path.dirname(index_path), exist_ok=True)
-        open(index_path, "w", encoding="utf-8", newline="\n").write(
-            f"---\ntype: index\ntags: [pulse, index]\n---\n\n# {args.hub_prefix} notes\n\n"
-            f"Auto-maintained index of weekly note hubs.\n\n## Months\n")
-        print(f"CREATED index {index_path}")
-    text, changed = _upsert_list(open(index_path, encoding="utf-8").read(),
-                                 "## Months", f"- [[{hub_name}|{mname}]]", reverse=True)
-    if changed:
-        open(index_path, "w", encoding="utf-8", newline="\n").write(text)
-        print(f"LINKED {hub_name} in {os.path.basename(index_path)}")
-    print("OK")
-    return 0
+    return link_into_hubs(args, "weekly")
 
 
 # --- lint (subcommand) ------------------------------------------------------
@@ -388,9 +272,7 @@ def cmd_coverage(args) -> int:
 # --- dispatch ---------------------------------------------------------------
 
 def main() -> int:
-    # Piped stdio uses the console codepage on Windows; JSON and notes are UTF-8.
-    for stream in (sys.stdin, sys.stdout):
-        stream.reconfigure(encoding="utf-8")
+    utf8_stdio()
     p = argparse.ArgumentParser(description="Pulse weekly synthesizer (L4).")
     sub = p.add_subparsers(dest="cmd", required=True)
 

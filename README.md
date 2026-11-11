@@ -80,10 +80,24 @@ Your Claude Code work  ->  Pulse captures it  ->  your own database
 - **Every night it writes one clear note** for the day, grouped by project, in plain English so it still makes sense months later.
 - **Your notes stay yours.** They are plain files in your own folder, easy to read, search, and reuse.
 
+## What is in this repo
+
+```
+backend/          the Convex backend that stores your sessions
+skills/
+  setup/          install script and the capture hook
+  digest/         writes the daily note
+  synth/          writes the weekly note
+  shared/         code and the writing guide both note skills use
+routines/        instructions for the nightly and weekly cloud runs
+tests/           run with python3 tests/test_<name>.py
+```
+
 ## Requirements
 
 - Claude Code
-- Node.js 18 or newer (for the Convex CLI)
+- Python 3.9 or newer (nothing to pip install)
+- Node.js 20 or newer (for the Convex CLI)
 - A free Convex account
 - A git repo for your notes (any GitHub repo works, and you can open it in Obsidian)
 
@@ -138,14 +152,17 @@ fill in.
 
 ## Configuration
 
-Copy [`config.example.yaml`](config.example.yaml) to `~/.pulse/config.yaml` and point it at your notes:
+Setup writes `~/.pulse/config.yaml` for you from [`config.example.yaml`](config.example.yaml). Edit it to change:
 
 | Key | Meaning |
 |---|---|
 | `timezone` | your timezone, for grouping a day's work |
 | `notes_repo` | path to your notes git repo |
 | `vault_subfolder` | folder inside it for daily notes (default `Pulse/Daily`) |
-| `hub_prefix` | name prefix for the monthly index |
+| `weekly_subfolder` | folder for weekly notes (default `Pulse/Weekly`) |
+| `projects_subfolder` | folder for project notes (default `Pulse/Projects`) |
+| `hub_prefix` | name prefix for the month hubs (default `Pulse`) |
+| `index_name` | file name of the daily index (default `Pulse Index.md`) |
 
 ## Status
 

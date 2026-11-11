@@ -16,28 +16,28 @@ comes from ~/.pulse/config.yaml (env vars win); Convex creds from ~/.pulse/.env.
 The daily note is regenerate-and-overwrite, so a project links as [[Project]]
 only when its note exists in projects_dir, else plain **bold** (no dead links).
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import re
 import sys
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from urllib.request import Request, urlopen
 
-ENV_FILE = os.path.expanduser("~/.pulse/.env")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
+from common import (  # noqa: E402
+    DASH_RE, FENCE_RE, cfg_get, get_tz, link_into_hubs, load_config,
+    pulse_home, render_label, strip_code, utf8_stdio)
+
 TRIVIAL_PROMPTS = {
     "hi", "hello", "hey", "yo", "thanks", "thank you", "ty", "ok", "okay", "k",
     "yes", "no", "yep", "yup", "nope", "sure", "cool", "nice", "great", "go",
     "go ahead", "continue", "next", "done", "good", "perfect",
 }
-MONTHS = ["January", "February", "March", "April", "May", "June", "July",
-          "August", "September", "October", "November", "December"]
-
-DASH_RE = re.compile(r"[—–]")
 LINK_RE = re.compile(r"\[\[([^\]\|#]+)")
-FENCE_RE = re.compile(r"```.*?```", re.S)
-CODE_RE = re.compile(r"`[^`\n]*`")
 SKIP_DIRS = {".git", ".obsidian", "node_modules", "__pycache__", ".trash"}
 
 SECTIONS = ["## Summary", "## Work log", "## Open loops"]
@@ -56,51 +56,20 @@ BANNED_WORDS = ["non-trivial", "leveraging", "baked into", "kicked off", "blast 
 BANNED_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in BANNED_WORDS) + r")\b", re.I)
 
 
-def strip_code(text: str) -> str:
-    return CODE_RE.sub("", FENCE_RE.sub("", text))
-
-
 def strip_code_blocks(text: str) -> str:
     return FENCE_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
 
 
-# --- config + creds ---------------------------------------------------------
-
-def pulse_home() -> str:
-    return os.path.expanduser(os.environ.get("PULSE_HOME", "~/.pulse"))
-
-
-def read_config(path: str) -> dict:
-    cfg: dict = {}
-    if not os.path.isfile(path):
-        return cfg
-    try:
-        for line in open(path, encoding="utf-8"):
-            line = line.split("#", 1)[0].strip()
-            if not line or ":" not in line:
-                continue
-            k, v = line.split(":", 1)
-            k, v = k.strip(), v.strip().strip('"').strip("'")
-            if v:
-                cfg[k] = v
-    except Exception:
-        pass
-    return cfg
-
-
-def cfg_get(cfg: dict, key: str, env: str | None, default: str) -> str:
-    if env and os.environ.get(env):
-        return os.environ[env]
-    return cfg.get(key, default)
-
+# --- creds ------------------------------------------------------------------
 
 def load_convex_env() -> tuple[str | None, str | None]:
     url, token = os.environ.get("CONVEX_URL"), os.environ.get("CONVEX_TOKEN")
     if url and token:
         return url, token
-    if os.path.isfile(ENV_FILE):
+    env_file = os.path.join(pulse_home(), ".env")
+    if os.path.isfile(env_file):
         try:
-            for line in open(ENV_FILE, encoding="utf-8"):
+            for line in open(env_file, encoding="utf-8"):
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
@@ -113,30 +82,6 @@ def load_convex_env() -> tuple[str | None, str | None]:
         except Exception:
             pass
     return url, token
-
-
-def get_tz(cfg: dict):
-    name = cfg_get(cfg, "timezone", "PULSE_TZ", "UTC")
-    if name and name != "UTC":
-        try:
-            from zoneinfo import ZoneInfo
-            return ZoneInfo(name)
-        except Exception:
-            # Windows Python ships no tz database; without this the day window
-            # would silently shift to UTC.
-            print(f"warning: unknown timezone {name!r}, using UTC "
-                  "(on Windows: pip install tzdata)", file=sys.stderr)
-    return timezone.utc
-
-
-# --- linking rule (existence-based) -----------------------------------------
-
-def render_label(label: str, projects_dir: str | None) -> str:
-    """Wikilink iff the project note exists, else bold. No dead links possible."""
-    if projects_dir and os.path.isfile(
-            os.path.join(os.path.expanduser(projects_dir), f"{label}.md")):
-        return f"[[{label}]]"
-    return f"**{label}**"
 
 
 # --- label map (optional) ---------------------------------------------------
@@ -296,7 +241,7 @@ def defer_today(date: str, now: datetime, include_today: bool) -> bool:
 
 
 def cmd_fetch(args) -> int:
-    cfg = read_config(os.path.join(pulse_home(), "config.yaml"))
+    cfg = load_config()
     tz = get_tz(cfg)
     date = resolve_date(args.date, tz)
     url, token = load_convex_env()
@@ -378,65 +323,8 @@ def cmd_render_block(args) -> int:
 
 # --- month-links (subcommand) -----------------------------------------------
 
-def _upsert_list(text: str, heading: str, new_line: str, reverse: bool = False):
-    if new_line in text:
-        return text, False
-    lines = text.split("\n")
-    try:
-        h = lines.index(heading)
-    except ValueError:
-        return text.rstrip("\n") + f"\n\n{heading}\n\n{new_line}\n", True
-    i = h + 1
-    while i < len(lines) and lines[i].strip() == "":
-        i += 1
-    start = i
-    while i < len(lines) and lines[i].startswith("- "):
-        i += 1
-    lines[start:i] = sorted(set(lines[start:i] + [new_line]), reverse=reverse)
-    out = "\n".join(lines)
-    return (out if out.endswith("\n") else out + "\n"), True
-
-
 def cmd_month_links(args) -> int:
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
-        print(f"ERROR: --date must be YYYY-MM-DD, got {args.date!r}", file=sys.stderr)
-        return 1
-    vault = os.path.abspath(os.path.expanduser(args.vault))
-    ym = args.date[:7]
-    y, m = ym.split("-")
-    mname = f"{MONTHS[int(m) - 1]} {y}"
-    sub = args.subfolder.strip("/")
-    hub_name = f"{args.hub_prefix} {ym}"
-    hub_path = os.path.join(vault, sub, ym, f"{hub_name}.md")
-    index_path = os.path.join(vault, sub, args.index)
-    index_stem = os.path.splitext(args.index)[0]
-
-    if not os.path.isfile(hub_path):
-        os.makedirs(os.path.dirname(hub_path), exist_ok=True)
-        open(hub_path, "w", encoding="utf-8", newline="\n").write(
-            f"---\ntype: month-hub\nmonth: \"{ym}\"\ntags: [pulse, hub]\n---\n\n"
-            f"# {args.hub_prefix} notes, {mname}\n\nPart of [[{index_stem}]].\n\n## Days\n")
-        print(f"CREATED hub {hub_path}")
-    d = datetime.strptime(args.date, "%Y-%m-%d")
-    day_link = f"- [[{sub}/{ym}/{args.date}|{d.strftime('%b')} {d.day}]]"
-    text, changed = _upsert_list(open(hub_path, encoding="utf-8").read(), "## Days", day_link)
-    if changed:
-        open(hub_path, "w", encoding="utf-8", newline="\n").write(text)
-        print(f"LINKED {args.date} in {os.path.basename(hub_path)}")
-
-    if not os.path.isfile(index_path):
-        os.makedirs(os.path.dirname(index_path), exist_ok=True)
-        open(index_path, "w", encoding="utf-8", newline="\n").write(
-            f"---\ntype: index\ntags: [pulse, index]\n---\n\n# {args.hub_prefix} notes\n\n"
-            f"Auto-maintained index of monthly note hubs.\n\n## Months\n")
-        print(f"CREATED index {index_path}")
-    text, changed = _upsert_list(open(index_path, encoding="utf-8").read(),
-                                 "## Months", f"- [[{hub_name}|{mname}]]", reverse=True)
-    if changed:
-        open(index_path, "w", encoding="utf-8", newline="\n").write(text)
-        print(f"LINKED {hub_name} in {os.path.basename(index_path)}")
-    print("OK")
-    return 0
+    return link_into_hubs(args, "daily")
 
 
 # --- note structure (shared by open-loops and lint) -------------------------
@@ -531,7 +419,7 @@ def cmd_open_loops(args) -> int:
                     "since": tag.group("since") if tag else None,
                     "age_days": since_age(tag.group("since"), date) if tag else None})
     if os.path.isfile(args.note):
-        loops = h2_body(read_note(args.note), "## Open loops") or ""
+        loops = loops_of(args.note)
         out["closed_in_existing"] = [ln for ln in loops.splitlines()
                                      if (t := TASK_RE.match(ln)) and t.group(1) != " "]
     print(json.dumps(out, ensure_ascii=False))
@@ -785,9 +673,7 @@ def cmd_check_links(args) -> int:
 # --- dispatch ---------------------------------------------------------------
 
 def main() -> int:
-    # Piped stdio uses the console codepage on Windows; JSON and notes are UTF-8.
-    for stream in (sys.stdin, sys.stdout):
-        stream.reconfigure(encoding="utf-8")
+    utf8_stdio()
     p = argparse.ArgumentParser(description="Pulse digester (L3).")
     sub = p.add_subparsers(dest="cmd", required=True)
 

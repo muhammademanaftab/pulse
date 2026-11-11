@@ -4,6 +4,8 @@
   python3 skills/setup/install.py                         wire capture (default)
   python3 skills/setup/install.py notes --repo <path> --create   configure daily notes
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -16,7 +18,7 @@ from urllib.request import Request, urlopen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-BACKEND = os.path.join(REPO, "convex-backend")
+BACKEND = os.path.join(REPO, "backend")
 PULSE_HOME = os.path.expanduser("~/.pulse")
 ENV_FILE = os.path.join(PULSE_HOME, ".env")
 CONFIG_FILE = os.path.join(PULSE_HOME, "config.yaml")
@@ -61,15 +63,14 @@ def check_prereqs() -> None:
     # On Windows the hook runs with this interpreter (sys.executable), not python3.
     py = [] if os.name == "nt" else [("python3", "this script")]
     for cmd, why in py + [("node", "the Convex CLI"),
-                     ("npx", "the Convex CLI"), ("git", "your notes repo"),
-                     ("curl", "the verification step")]:
+                     ("npx", "the Convex CLI"), ("git", "your notes repo")]:
         if not have(cmd):
             die(f"'{cmd}' not found (needed for {why}). Install it and re-run.")
-    print(f"   ok: {'python' if os.name == 'nt' else 'python3'}, node, npx, git, curl")
+    print(f"   ok: {'python' if os.name == 'nt' else 'python3'}, node, npx, git")
 
 
 def ensure_backend_deps() -> None:
-    print("2. Installing Convex backend deps (convex-backend/)...")
+    print("2. Installing Convex backend deps (backend/)...")
     code, _, err = run(["npm", "install"], cwd=BACKEND, timeout=300)
     if code != 0:
         die(f"npm install failed in {BACKEND}:\n{err}")
@@ -172,7 +173,9 @@ def install_hook() -> None:
 
 def verify(url: str, token: str) -> None:
     print("6. Verifying with a probe record...")
+    # Fixed event_id: re-running setup reuses the one probe row instead of adding more.
     payload = json.dumps({"message": "pulse install verification probe",
+                          "event_id": "pulse-install-verify",
                           "project": "pulse-install", "projectPath": "/",
                           "sessionId": "install-verify"}).encode()
     req = Request(url.rstrip("/") + "/ingest", data=payload, method="POST",

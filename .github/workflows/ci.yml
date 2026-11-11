@@ -67,13 +67,16 @@ jobs:
           "
 
       - name: Compile all scripts
-        run: python3 -m py_compile skills/setup/*.py skills/digest/*.py skills/synth/*.py
+        run: python3 -m py_compile skills/*/*.py tests/*.py
 
       - name: Capture parser and redaction tests
-        run: python3 skills/setup/test_capture.py
+        run: python3 tests/test_capture.py
 
       - name: Daily note structure, open loops, label folding tests
-        run: python3 skills/digest/test_digest.py
+        run: python3 tests/test_digest.py
+
+      - name: Weekly synth parser tests
+        run: python3 tests/test_synth.py
 
       - name: Link-rendering rule (existence-based)
         run: |

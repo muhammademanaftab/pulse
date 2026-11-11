@@ -65,7 +65,7 @@ SKILL file.
    - `references/bullet-quality.md` (truth-check against the response, exact
      names/counts, don't bullet plumbing)
    - `references/signals.md` (spot the Decided, Rule, Learned and Bug items)
-   - `references/humanizer.md` (the AI-writing tells to avoid; applied in step 5b).
+   - `skills/shared/humanizer.md` (the AI-writing tells to avoid; applied in step 5b).
      This is the only tone guide: plain English, no AI vocabulary, no em dashes.
 
 5. **Get the open loops to carry** from the previous note (and the items already
@@ -104,7 +104,7 @@ SKILL file.
      every `Open:` bullet in the Work log, or `- None.`.
 
 5b. **Humanizer pass (readability, required).** Before saving, apply the
-   `references/humanizer.md` checklist to every line you wrote (Summary, Work log,
+   `skills/shared/humanizer.md` checklist to every line you wrote (Summary, Work log,
    Open loops). It is a checklist, not a script: rewrite in place so
    the note reads like a person wrote it. Strip the tells it lists (em dashes, AI
    vocabulary, rule-of-three filler, negative parallelisms, `-ing` pseudo-analysis,

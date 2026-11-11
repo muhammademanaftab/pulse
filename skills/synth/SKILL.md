@@ -65,7 +65,7 @@ this SKILL file.
 5. **Read the rules once** before writing any line:
    - `references/signal-vs-noise.md` (what earns a line vs what is plumbing)
    - `references/weekly-note-style.md` (voice, structure, length, linking)
-   - `references/humanizer.md` (the AI-writing tells to avoid; applied in step 6b)
+   - `skills/shared/humanizer.md` (the AI-writing tells to avoid; applied in step 6b)
 
 6. **Write the weekly note at `weekly_note_path`** from the two JSON files, using
    this skill's `templates/weekly-note.md` (create the month folder if needed).
@@ -87,7 +87,7 @@ this SKILL file.
      footer after a `---` rule.
 
 6b. **Humanizer pass (readability, required).** Before saving, apply the
-   `references/humanizer.md` checklist to every line you wrote. Rewrite in place so
+   `skills/shared/humanizer.md` checklist to every line you wrote. Rewrite in place so
    the note reads like a person wrote it. Strip the tells it lists (em dashes, AI
    vocabulary, rule-of-three filler, negative parallelisms, inline-header lists,
    vague attributions). Locally you may invoke the `humanizer` Skill directly; the

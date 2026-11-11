@@ -3,18 +3,21 @@
 
 Stdlib only, no test framework: plain asserts, runnable directly.
 
-    python3 skills/setup/test_capture.py
+    python3 tests/test_capture.py
 
 Covers the two riskiest parts: the transcript parser (which re-implements
 Claude Code's transcript shape) and the redaction / truncation pass.
 """
+from __future__ import annotations
+
 import importlib.util
 import json
 import os
 import tempfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-spec = importlib.util.spec_from_file_location("capture", os.path.join(HERE, "capture.py"))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+spec = importlib.util.spec_from_file_location(
+    "capture", os.path.join(REPO, "skills", "setup", "capture.py"))
 cap = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cap)
 
