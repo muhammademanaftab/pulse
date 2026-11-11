@@ -30,8 +30,9 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
-    DASH_RE, FENCE_RE, cfg_get, get_tz, link_into_hubs, load_config,
-    pulse_home, render_label, strip_code, utf8_stdio)
+    BANNED_RE, DASH_RE, DATE_FILE_RE, LOOP_TAG_RE, TASK_RE, cfg_get, get_tz, h2_body,
+    link_into_hubs, list_dated_notes, load_config, loop_text, pulse_home, read_note,
+    render_label, strip_code, strip_code_blocks, utf8_stdio)
 
 TRIVIAL_PROMPTS = {
     "hi", "hello", "hey", "yo", "thanks", "thank you", "ty", "ok", "okay", "k",
@@ -45,21 +46,8 @@ SKIP_DIRS = {".git", ".obsidian", "node_modules", "__pycache__", ".trash"}
 SECTIONS = ["## Summary", "## Work log", "## Open loops"]
 BLOCK_HEADING_RE = re.compile(
     r"^###\s+(?:\[\[(?P<link>[^\]#|]+)(?:[#|][^\]]*)?\]\]|\*\*(?P<bold>[^*]+)\*\*)\s*$")
-TASK_RE = re.compile(r"^- \[( |x|X)\] (.+)$")
-LOOP_TAG_RE = re.compile(
-    r"\s*\((?P<project>(?:[^()]|\([^()]*\))*?),\s*since (?P<since>[A-Z][a-z]{2} \d{1,2})[^()]*\)\s*$")
-MONTH_DIR_RE = re.compile(r"^\d{4}-\d{2}$")
 PREFIX_RE = re.compile(r"^- (\*\*)?(outcome|decided|bug|rule|learned|open|refs)(\*\*)?:", re.I)
 CLOSED_RE = re.compile(r",\s*(?:done [A-Z][a-z]{2} \d{1,2}|dropped [A-Z][a-z]{2} \d{1,2}:)")
-DATE_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
-BANNED_WORDS = ["non-trivial", "leveraging", "baked into", "kicked off", "blast radius",
-                "key finding", "non-negotiable", "iteratively", "front-of-mind",
-                "underweighted", "pushed through", "delve", "seamlessly"]
-BANNED_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in BANNED_WORDS) + r")\b", re.I)
-
-
-def strip_code_blocks(text: str) -> str:
-    return FENCE_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
 
 
 # --- creds ------------------------------------------------------------------
@@ -373,16 +361,6 @@ def cmd_month_links(args) -> int:
 
 # --- note structure (shared by open-loops and lint) -------------------------
 
-def h2_body(text: str, heading: str) -> str | None:
-    m = re.search(rf"^{re.escape(heading)}[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-    return m.group(1) if m else None
-
-
-def loop_text(line: str) -> str:
-    m = TASK_RE.match(line)
-    return LOOP_TAG_RE.sub("", m.group(2) if m else line).strip()
-
-
 def loop_items(body: str) -> dict[str, str]:
     return {loop_text(ln): TASK_RE.match(ln).group(1).lower()
             for ln in body.splitlines() if TASK_RE.match(ln)}
@@ -399,25 +377,13 @@ def note_date(path: str) -> str | None:
 
 def dated_notes(path: str) -> list[str]:
     """Every dated note in the YYYY-MM folders next to this note's month, by date."""
-    root = os.path.dirname(os.path.dirname(os.path.abspath(path)))
-    if not os.path.isdir(root):
-        return []
-    notes = []
-    for month in os.listdir(root):
-        mdir = os.path.join(root, month)
-        if MONTH_DIR_RE.match(month) and os.path.isdir(mdir):
-            notes += [os.path.join(mdir, f) for f in os.listdir(mdir) if DATE_FILE_RE.match(f)]
-    return sorted(notes, key=os.path.basename)
+    return list_dated_notes(os.path.dirname(os.path.dirname(os.path.abspath(path))))
 
 
 def previous_note(path: str) -> str | None:
     date = note_date(path)
     earlier = [n for n in dated_notes(path) if note_date(n) < date] if date else []
     return earlier[-1] if earlier else None
-
-
-def read_note(path: str) -> str:
-    return open(path, encoding="utf-8", errors="replace").read()
 
 
 def loops_of(path: str) -> str:

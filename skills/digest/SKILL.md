@@ -169,7 +169,7 @@ SKILL file.
    re-run step 7 (the gates) and re-review. Only proceed to step 8 on PASS. Do not
    push or mark a note the reviewer has not passed.
 
-8. **Carry forward, commit, push, mark.** Copy this note's new open items into the
+8. **Carry forward, project pages, commit, push, mark.** Copy this note's new open items into the
    newest daily note when this run is a backfill (it does nothing otherwise):
 
    ```bash
@@ -180,8 +180,17 @@ SKILL file.
    (`digest.py lint "<note>"`). If it fails, fix only what lint names in that
    note, keeping the carried items, and re-lint.
 
-   In the notes repo, commit the note, the month hub and index from step 6, and
-   every note carry-forward changed. Push to its branch, then verify the push
+   Then refresh the project pages (`skills/projects/SKILL.md`, steps 1 to 3):
+
+   ```bash
+   python3 skills/projects/projects.py sync
+   ```
+
+   Write the About paragraph for every `NEW` page, lint every `RELINKED` note
+   (`digest.py lint "<note>" --allow-legacy`), and re-run the link health gate.
+
+   In the notes repo, commit the note, the month hub and index from step 6,
+   every note carry-forward changed, the project pages, and every relinked note. Push to its branch, then verify the push
    landed (`HEAD` equals `origin/<branch>`). Only after that, mark the rows:
 
    ```bash

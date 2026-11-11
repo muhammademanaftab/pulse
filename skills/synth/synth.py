@@ -25,15 +25,9 @@ from datetime import date, datetime, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
-    DASH_RE, cfg_get, get_tz, link_into_hubs, load_config, render_label,
-    strip_code, utf8_stdio)
+    DASH_RE, cfg_get, get_tz, link_into_hubs, load_config, parse_note,
+    render_label, strip_code, utf8_stdio)
 
-# Work-log headings the digest writes: `### [[Project]]` or `### **Project**`.
-HEADING_RE = re.compile(
-    r"^###\s+(?:\[\[(?P<link>[^\]#|]+)(?:[#|][^\]]*)?\]\]|\*\*(?P<bold>[^*]+)\*\*)")
-ANY_H3_RE = re.compile(r"^###\s")
-H2_RE = re.compile(r"^##\s")
-BULLET_RE = re.compile(r"^\s*-\s+(.*)$")
 LOOP_RE = re.compile(r"^- \[( |x|X)\] (.+?)\s*\([^()]*(?:\([^()]*\)[^()]*)*since [^()]*\)\s*$")
 
 
@@ -102,62 +96,6 @@ def cmd_collect(args) -> int:
 
 
 # --- buckets (subcommand) ---------------------------------------------------
-
-def parse_note(text: str):
-    """Return (summary, blocks). summary is the ## Summary text; blocks is a
-    list of {project, bold, bullets} from the ## Work log section."""
-    summary_lines: list[str] = []
-    blocks: list[dict] = []
-    current: dict | None = None
-    section = None  # None | "summary" | "worklog"
-
-    for raw in text.splitlines():
-        line = raw.rstrip()
-        low = line.strip().lower()
-        if H2_RE.match(line):
-            if current:
-                blocks.append(current)
-                current = None
-            if low == "## summary":
-                section = "summary"
-            elif low == "## work log":
-                section = "worklog"
-            else:
-                section = None
-            continue
-
-        if section == "summary":
-            if line.strip():
-                summary_lines.append(line.strip())
-            continue
-
-        if section != "worklog":
-            continue
-
-        m = HEADING_RE.match(line)
-        if m:
-            if current:
-                blocks.append(current)
-            linked = m.group("link")
-            bold = m.group("bold")
-            current = {"project": (linked or bold).strip(),
-                       "bold": linked is None, "bullets": []}
-            continue
-        if ANY_H3_RE.match(line):  # an H3 with no recognizable label ends the block
-            if current:
-                blocks.append(current)
-                current = None
-            continue
-        if current is None:
-            continue
-        b = BULLET_RE.match(line)
-        if b:
-            current["bullets"].append(b.group(1).strip())
-
-    if current:
-        blocks.append(current)
-    return " ".join(summary_lines).strip(), blocks
-
 
 def cmd_buckets(args) -> int:
     with open(args.week_json, encoding="utf-8") as f:
