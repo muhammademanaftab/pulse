@@ -368,6 +368,59 @@ def test_carry_forward_after_backfill():
     assert "no later note" in carry_forward(note_path(root, "2026-06-05"))
 
 
+def test_backfill_that_closes_an_item_closes_it_in_later_notes():
+    later = GOOD.replace("- Open: Add the preview button to mobile.\n", "")
+    extra = later.replace("(Web App, since Jun 2)\n",
+                          "(Web App, since Jun 2)\n- [ ] Call Sam. (Web App, since Jun 3)\n", 1)
+    backfill = later.replace("- [ ] Add the preview button to mobile. (Web App, since Jun 2)",
+                             "- [x] Add the preview button to mobile. (Web App, since Jun 2, done Jun 3)")
+    root = vault_with({"2026-06-03": backfill, "2026-06-04": later, "2026-06-05": extra})
+    out = carry_forward(note_path(root, "2026-06-03"))
+    assert out.count("CLOSED 1 item(s)") == 2, out
+    items = lambda d: dg.loop_items(dg.loops_of(note_path(root, d)))
+    assert items("2026-06-04") == {} and "- None." in dg.loops_of(note_path(root, "2026-06-04"))
+    assert items("2026-06-05") == {"Call Sam.": " "}
+    for d in ("2026-06-04", "2026-06-05"):
+        problems = lint(dg.read_note(note_path(root, d)), root=root, date=d)
+        assert problems == [], (d, problems)
+    assert "CLOSED" not in carry_forward(note_path(root, "2026-06-03"))
+
+
+def test_an_item_reopened_later_is_not_closed_by_a_backfill():
+    backfill = GOOD.replace("- Open: Add the preview button to mobile.\n", "").replace(
+        "- [ ] Add the preview button to mobile. (Web App, since Jun 2)",
+        "- [x] Add the preview button to mobile. (Web App, since Jun 2, done Jun 3)")
+    reopened = GOOD.replace("since Jun 2)", "since Jun 5)")
+    root = vault_with({"2026-06-03": backfill, "2026-06-05": reopened})
+    assert "CLOSED" not in carry_forward(note_path(root, "2026-06-03"))
+
+
+def test_check_links_resolves_pages_outside_the_scanned_folder():
+    root = tempfile.mkdtemp()
+    os.makedirs(os.path.join(root, "Daily", "2026-06"))
+    os.makedirs(os.path.join(root, "Projects"))
+    with open(os.path.join(root, "Daily", "2026-06", "2026-06-02.md"), "w", encoding="utf-8") as f:
+        f.write("See [[Web App]] and [[Daily/2026-06/other|x]].\n")
+    with open(os.path.join(root, "Daily", "2026-06", "other.md"), "w", encoding="utf-8") as f:
+        f.write("Back to [[2026-06-02]].\n")
+    with open(os.path.join(root, "Projects", "Web App.md"), "w", encoding="utf-8") as f:
+        f.write("# Web App\n\n[[Missing]]\n")
+    run = lambda sub: dg.cmd_check_links(type("A", (), {"vault": root, "subfolder": sub}))
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        assert run("Daily") == 0
+        assert run(None) == 1
+
+
+def test_labels_are_cleaned_and_a_bad_date_is_a_clean_error():
+    assert dg.clean_label('say "hi" a*b') == "say hi a b"
+    assert dg.clean_label("client/server: v2") == "client server v2"
+    assert dg.clean_label("Web App (beta)") == "Web App (beta)"
+    assert dg.clean_label("***") == "Misc"
+    with contextlib.redirect_stderr(io.StringIO()) as err:
+        assert dg.cmd_fetch(type("A", (), {"date": "2026-13-01", "include_today": False})) == 2
+    assert "--date must be" in json.loads(err.getvalue())["error"]
+
+
 def test_carry_forward_skips_legacy_notes_and_fenced_headings():
     legacy = "---\nx: 1\n---\n\n# Old\n\n## Summary\n\nS.\n\n## Work log\n\n## Next\n\n- Ship\n"
     fenced = GOOD.replace("- Refs: PR #41, `home.tsx`", "- Refs: PR #41\n```\n## Open loops\n```")

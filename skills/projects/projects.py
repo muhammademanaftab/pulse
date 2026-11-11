@@ -21,13 +21,14 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
-    LOOP_TAG_RE, MONTHS, TASK_RE, cfg_get, h2_body, list_dated_notes, load_config,
+    LOOP_TAG_RE, MONTHS, TASK_RE, UNSAFE_LABEL_RE, cfg_get, h2_body, list_dated_notes, load_config,
     loop_text, parse_note, read_note, strip_code_blocks, utf8_stdio)
 
 ABOUT_TODO = "About: not written yet."
 SECTIONS = [("Decided", "## Decisions"), ("Bug", "## Bugs"),
             ("Rule", "## Rules and lessons"), ("Learned", "## Rules and lessons")]
-UNSAFE_NAME_RE = re.compile(r'[\\/:*?"<>|#^\[\]]')
+FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
+PAGE_TAGS = "tags: [pulse, project]"
 ABOUT_RE = re.compile(r"^# [^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
 
 
@@ -36,37 +37,49 @@ def pretty(date: str) -> str:
     return f"{MONTHS[d.month - 1][:3]} {d.day}, {d.year}"
 
 
-def collect(daily_dir: str, vault: str, ignore: set[str]) -> dict[str, dict]:
-    """label -> {days: [(date, vault-relative link target)], items: {section: [lines]},
-    open: [lines]}, read from every daily note, oldest first."""
+def is_pulse_page(text: str) -> bool:
+    fm = FRONTMATTER_RE.match(text)
+    return bool(fm) and "type: project" in fm.group(1).splitlines() and PAGE_TAGS in fm.group(1).splitlines()
+
+
+def collect(daily_dir: str, vault: str, ignore: set[str], names: dict[str, str]):
+    """Read every daily note, oldest first. Returns (projects, unsafe) where
+    projects maps a label to {days, items, open} and unsafe lists labels that
+    cannot be a file name. `names` maps a lowercased label to the spelling to
+    use, so labels that differ only by case share one page."""
     projects: dict[str, dict] = {}
+    unsafe: list[str] = []
     notes = list_dated_notes(daily_dir)
-    for path in notes:
+    texts = [strip_code_blocks(read_note(path)) for path in notes]
+    for path, text in zip(notes, texts):
         date = os.path.splitext(os.path.basename(path))[0]
         target = os.path.splitext(os.path.relpath(path, vault))[0].replace("\\", "/")
-        _, blocks = parse_note(strip_code_blocks(read_note(path)))
-        for blk in blocks:
-            label = blk["project"]
-            if label in ignore or UNSAFE_NAME_RE.search(label):
+        for blk in parse_note(text)[1]:
+            if blk["project"] in ignore:
                 continue
+            if UNSAFE_LABEL_RE.search(blk["project"]):
+                if blk["project"] not in unsafe:
+                    unsafe.append(blk["project"])
+                continue
+            label = names.setdefault(blk["project"].lower(), blk["project"])
             proj = projects.setdefault(label, {"days": [], "items": {}, "open": []})
             if (date, target) not in proj["days"]:
                 proj["days"].append((date, target))
             for bullet in blk["bullets"]:
                 for prefix, section in SECTIONS:
                     if bullet.startswith(prefix + ": "):
-                        text = bullet[len(prefix) + 2:].strip()
-                        line = (f"- {pretty(date)}: {text}" if section != "## Rules and lessons"
-                                else f"- {prefix}: {text} ({pretty(date)})")
+                        text_ = bullet[len(prefix) + 2:].strip()
+                        line = (f"- {pretty(date)}: {text_}" if section != "## Rules and lessons"
+                                else f"- {prefix}: {text_} ({pretty(date)})")
                         proj["items"].setdefault(section, []).append(line)
-    if notes:
-        loops = h2_body(strip_code_blocks(read_note(notes[-1])), "## Open loops") or ""
-        for ln in loops.splitlines():
-            t, tag = TASK_RE.match(ln), LOOP_TAG_RE.search(ln)
-            if t and t.group(1) == " " and tag and tag.group("project").strip() in projects:
-                projects[tag.group("project").strip()]["open"].append(
-                    f"- {loop_text(ln)} (since {tag.group('since')})")
-    return projects
+    ledger = next((h2_body(t, "## Open loops") for t in reversed(texts)
+                   if h2_body(t, "## Open loops") is not None), "")
+    for ln in ledger.splitlines():
+        t, tag = TASK_RE.match(ln), LOOP_TAG_RE.search(ln)
+        label = names.get(tag.group("project").strip().lower()) if tag else None
+        if t and t.group(1) == " " and label in projects:
+            projects[label]["open"].append(f"- {loop_text(ln)} (since {tag.group('since')})")
+    return projects, unsafe
 
 
 def render_page(label: str, proj: dict, about: str) -> str:
@@ -82,24 +95,29 @@ def render_page(label: str, proj: dict, about: str) -> str:
     return "\n".join(out) + "\n"
 
 
-def relink(path: str, labels: set[str]) -> bool:
-    """Turn `### **Label**` and its frontmatter entry into links, for labels that
-    now have a page. Keeps line endings; skips fenced code."""
+def relink(path: str, names: dict[str, str]) -> bool:
+    """Point a daily note's Work log headings and frontmatter entries at the
+    project pages in `names` (lowercased label -> page name), bold or already
+    linked. Keeps line endings; skips fenced code."""
     raw = open(path, encoding="utf-8", errors="replace", newline="").read()
     nl = "\r\n" if "\r\n" in raw else "\n"
     lines, fenced, dashes, changed = raw.split(nl), False, 0, False
     for i, ln in enumerate(lines):
+        new = ln
         if ln.startswith("```"):
             fenced = not fenced
         elif fenced:
             continue
         elif ln.strip() == "---" and dashes < 2:
             dashes += 1
-        elif dashes == 1 and (m := re.match(r'^(\s*-\s*)"([^"\[\]]+)"\s*$', ln)):
-            if m.group(2) in labels:
-                lines[i], changed = f'{m.group(1)}"[[{m.group(2)}]]"', True
-        elif (m := re.match(r"^###\s+\*\*([^*]+)\*\*\s*$", ln)) and m.group(1).strip() in labels:
-            lines[i], changed = f"### [[{m.group(1).strip()}]]", True
+        elif dashes == 1 and (m := re.match(r'^(\s*-\s*)"(?:\[\[)?([^"\[\]]+)(?:\]\])?"\s*$', ln)):
+            if (name := names.get(m.group(2).strip().lower())):
+                new = f'{m.group(1)}"[[{name}]]"'
+        elif (m := re.match(r"^###\s+(?:\*\*([^*]+)\*\*|\[\[([^\]#|]+)\]\])\s*$", ln)):
+            if (name := names.get((m.group(1) or m.group(2)).strip().lower())):
+                new = f"### [[{name}]]"
+        if new != ln:
+            lines[i], changed = new, True
     if changed:
         with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(nl.join(lines))
@@ -118,28 +136,35 @@ def cmd_sync(args) -> int:
         vault, cfg_get(cfg, "projects_subfolder", "PULSE_PROJECTS_SUBFOLDER", "Pulse/Projects"))
     ignore = set(args.ignore) if args.ignore else {"Misc"}
 
-    have_page = set()
-    for label, proj in sorted(collect(daily_dir, vault, ignore).items()):
+    existing = {os.path.splitext(f)[0].lower(): os.path.splitext(f)[0]
+                for f in (os.listdir(projects_dir) if os.path.isdir(projects_dir) else [])
+                if f.endswith(".md")}
+    names = dict(existing)
+    projects, unsafe = collect(daily_dir, vault, ignore, names)
+    for label in unsafe:
+        print(f"SKIPPED {label!r} (the name cannot be a file name, so it gets no page)")
+
+    pages: dict[str, str] = {}
+    for label, proj in sorted(projects.items()):
         path = os.path.join(projects_dir, f"{label}.md")
-        old = read_note(path) if os.path.isfile(path) else None
+        old = read_note(path) if label.lower() in existing else None
         if old is None and len(proj["days"]) < args.min_days:
             continue
-        if old is not None and not re.match(r"^---\n(?:.*\n)*?type: project\n", old):
+        pages[label.lower()] = label
+        if old is not None and not is_pulse_page(old):
             print(f"SKIPPED {path} (not a Pulse project page, left as written)")
-            have_page.add(label)
             continue
         about = ABOUT_RE.search(old) if old else None
         text = render_page(label, proj, (about.group(1).strip() if about else "") or ABOUT_TODO)
-        have_page.add(label)
         if text != old:
             os.makedirs(projects_dir, exist_ok=True)
             with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text)
             print(f"{'UPDATED' if old else 'NEW'} {path}")
     for note in list_dated_notes(daily_dir):
-        if relink(note, have_page):
+        if relink(note, pages):
             print(f"RELINKED {note}")
-    print(f"OK {len(have_page)} project page(s)")
+    print(f"OK {len(pages)} project page(s)")
     return 0
 
 

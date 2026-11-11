@@ -14,6 +14,7 @@ import contextlib
 import io
 import json
 import os
+import sys
 import tempfile
 
 from test_digest import GOOD, REPO, load, note_path
@@ -108,6 +109,29 @@ def test_coverage_needs_the_project_at_the_start_of_a_bullet():
     skipped = worked + "\n## What I skipped (and why)\n\n- Billing API (1 day): one quiet mention\n"
     assert coverage(["Web App", "Billing API", "Misc"], skipped) == 0
     assert coverage(["Infra (Terraform)"], "## What you worked on\n\n- [[Infra (Terraform)]] (1 day): x\n") == 0
+
+
+def test_default_week_is_the_last_finished_one_even_on_a_sunday():
+    import datetime as real
+    common = sys.modules["common"]
+
+    class FakeDatetime(real.datetime):
+        today = None
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.today
+
+    old = common.datetime
+    common.datetime = FakeDatetime
+    try:
+        for today, want in ((real.datetime(2026, 7, 5, 23), "2026-06-28"),
+                            (real.datetime(2026, 7, 6, 8), "2026-07-05"),
+                            (real.datetime(2026, 7, 9, 8), "2026-07-05")):
+            FakeDatetime.today = today
+            assert sy.resolve_week_end(None, None).isoformat() == want, (today, want)
+    finally:
+        common.datetime = old
 
 
 def test_week_end_must_be_a_sunday():

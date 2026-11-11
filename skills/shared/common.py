@@ -18,6 +18,7 @@ DASH_RE = re.compile(r"[—–]")
 FENCE_RE = re.compile(r"```.*?```", re.S)
 CODE_RE = re.compile(r"`[^`\n]*`")
 MONTH_DIR_RE = re.compile(r"^\d{4}-\d{2}$")
+UNSAFE_LABEL_RE = re.compile(r'[\\/:*?"<>|#^\[\]]')
 DATE_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
 BANNED_WORDS = ["non-trivial", "leveraging", "baked into", "kicked off", "blast radius",
                 "key finding", "non-negotiable", "iteratively", "front-of-mind",
@@ -117,7 +118,7 @@ def resolve_week_end(arg: str | None, tz) -> date:
             sys.exit(1)
         return day
     today = datetime.now(tz).date()
-    return today - timedelta(days=(today.weekday() - 6) % 7)
+    return today - timedelta(days=today.weekday() + 1)
 
 
 def render_label(label: str, projects_dir: str | None) -> str:
@@ -168,7 +169,11 @@ def link_into_hubs(args, kind: str) -> int:
         print(f"ERROR: --date must be YYYY-MM-DD, got {args.date!r}", file=sys.stderr)
         return 1
     hub_type, list_heading, per_week, blurb = HUB_KINDS[kind]
-    d = datetime.strptime(args.date, "%Y-%m-%d")
+    try:
+        d = datetime.strptime(args.date, "%Y-%m-%d")
+    except ValueError:
+        print(f"ERROR: --date is not a real date: {args.date!r}", file=sys.stderr)
+        return 1
     ym = args.date[:7]
     mname = f"{MONTHS[d.month - 1]} {d.year}"
     day = f"{MONTHS[d.month - 1][:3]} {d.day}"
@@ -186,7 +191,7 @@ def link_into_hubs(args, kind: str) -> int:
                f"tags: [pulse, hub]\n---\n\n# {args.hub_prefix} notes, {mname}\n\n"
                f"Part of [[{index_stem}]].\n\n{list_heading}\n")
         print(f"CREATED hub {hub_path}")
-    link = f"- [[{sub}/{ym}/{args.date}|{'Week of ' + day if per_week else day}]]"
+    link = f"- [[{sub}/{ym}/{args.date}|{'Week ending ' + day if per_week else day}]]"
     text, changed = upsert_list(open(hub_path, encoding="utf-8").read(), list_heading, link)
     if changed:
         _write(hub_path, text)

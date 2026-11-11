@@ -138,6 +138,54 @@ def test_misc_and_unsafe_labels_get_no_page():
     assert sorted(os.listdir(os.path.join(root, "Pulse", "Projects"))) == ["Web App.md"]
 
 
+def rewrite(path: str, change) -> None:
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(change(text))
+
+
+def test_users_own_project_note_is_never_overwritten():
+    for own in ("---\ntype: project\nstatus: active\n---\n# Web App\n\n## My plan\n\n- step one\n",
+                "---\ntags: [mine]\n---\n# Web App\n\ntype: project\ntags: [pulse, project]\n"):
+        root = vault()
+        os.makedirs(os.path.dirname(page(root, "Web App")))
+        with open(page(root, "Web App"), "w", encoding="utf-8") as f:
+            f.write(own)
+        assert "SKIPPED" in sync(root)
+        assert open(page(root, "Web App"), encoding="utf-8").read() == own
+
+
+def test_labels_that_differ_only_by_case_share_one_page():
+    root = vault()
+    rewrite(daily(root, "2026-06-03"), lambda t: t.replace("**Web App**", "**web app**").replace(
+        '"Web App"', '"web app"'))
+    out = sync(root)
+    assert sorted(os.listdir(os.path.join(root, "Pulse", "Projects"))) == ["Web App.md"], out
+    text = open(page(root, "Web App"), encoding="utf-8").read()
+    assert "days_worked: 2" in text and "# Web App" in text, text
+    later = open(daily(root, "2026-06-03"), encoding="utf-8").read()
+    assert "### [[Web App]]" in later and '"[[Web App]]"' in later and "web app" not in later, later
+    assert sync(root).strip() == "OK 1 project page(s)"
+
+
+def test_open_list_comes_from_the_newest_note_that_has_open_loops():
+    root = vault()
+    os.makedirs(os.path.join(root, "Pulse", "Daily", "2026-06"), exist_ok=True)
+    with open(daily(root, "2026-06-04"), "w", encoding="utf-8") as f:
+        f.write("---\nx: 1\n---\n\n# Old\n\n## Summary\n\nS.\n\n## Work log\n\n## Next\n\n- Ship\n")
+    sync(root)
+    assert "- Add the preview button to mobile. (since Jun 2)" in open(
+        page(root, "Web App"), encoding="utf-8").read()
+
+
+def test_label_that_cannot_be_a_file_name_is_reported():
+    root = vault()
+    rewrite(daily(root, "2026-06-02"), lambda t: t.replace(
+        "## Open loops", "### **client/server**\n\n- Outcome: y.\n\n## Open loops"))
+    assert "SKIPPED 'client/server'" in sync(root)
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

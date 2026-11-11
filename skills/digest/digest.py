@@ -30,7 +30,7 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
-    BANNED_RE, DASH_RE, DATE_FILE_RE, LOOP_TAG_RE, TASK_RE, cfg_get, get_tz, h2_body,
+    BANNED_RE, DASH_RE, DATE_FILE_RE, LOOP_TAG_RE, TASK_RE, UNSAFE_LABEL_RE, cfg_get, get_tz, h2_body,
     link_into_hubs, list_dated_notes, load_config, loop_text, notes_repo_dir, pulse_home,
     read_note,
     render_label, strip_code, strip_code_blocks, utf8_stdio)
@@ -180,6 +180,11 @@ def is_noise_folder(event: dict, labels: dict) -> bool:
         e.get("regex") and rx_search(e["regex"], raw) for e in labels.get("noise_patterns", []))
 
 
+def clean_label(label: str) -> str:
+    """A label becomes a heading, a link and a file name, so drop what breaks those."""
+    return re.sub(r"\s+", " ", UNSAFE_LABEL_RE.sub(" ", label)).strip(" .") or "Misc"
+
+
 def resolve_labels(events: list[dict], labels: dict) -> list[str]:
     """A scratch-folder event takes a path_patterns hit on its full path, else the
     label of the nearest-in-time real event in its session, else the fallback."""
@@ -250,7 +255,12 @@ def defer_today(date: str, now: datetime, include_today: bool) -> bool:
 def cmd_fetch(args) -> int:
     cfg = load_config()
     tz = get_tz(cfg)
-    date = resolve_date(args.date, tz)
+    try:
+        date = resolve_date(args.date, tz)
+    except ValueError:
+        print(json.dumps({"error": f"--date must be YYYY-MM-DD, today or yesterday, "
+                                   f"got {args.date!r}"}), file=sys.stderr)
+        return 2
     url, token, error = convex_creds()
     if error:
         print(json.dumps({"error": error, "date": date}), file=sys.stderr)
@@ -284,7 +294,7 @@ def cmd_fetch(args) -> int:
     events.sort(key=lambda e: (e.get("ts", 0), e.get("timestamp", "")))
     grouped: dict[str, list] = {}
     for e, label in zip(events, resolve_labels(events, labels)):
-        grouped.setdefault(label, []).append(
+        grouped.setdefault(clean_label(label), []).append(
             {"ts": e["ts"], "timestamp": e["timestamp"], "prompt": e["prompt"],
              "response": e["response"], "id": e["id"]})
 
@@ -439,8 +449,15 @@ def cmd_open_loops(args) -> int:
 
 # --- carry-forward (subcommand) --------------------------------------------
 
-def insert_loops(path: str, new: list[str]) -> bool:
-    """Append items to a note's Open loops (outside code fences), keeping its line endings."""
+def loop_key(line: str) -> tuple[str, str | None]:
+    tag = LOOP_TAG_RE.search(line)
+    return loop_text(line), tag.group("since") if tag else None
+
+
+def edit_loops(path: str, add: list[str], closed: set) -> int:
+    """Append `add` to a note's Open loops and drop its open items whose
+    (text, since) is in `closed`. Skips code fences, keeps line endings.
+    Returns how many items were dropped, or -1 if the note has no Open loops."""
     raw = open(path, encoding="utf-8", errors="replace", newline="").read()
     nl = "\r\n" if "\r\n" in raw else "\n"
     lines, fenced, start = raw.splitlines(), False, None
@@ -451,13 +468,17 @@ def insert_loops(path: str, new: list[str]) -> bool:
             start = i
             break
     if start is None:
-        return False
+        return -1
     end = next((j for j in range(start + 1, len(lines)) if lines[j].startswith("## ")), len(lines))
-    kept = [ln for ln in lines[start + 1:end] if ln.strip() and ln.strip() != "- None."]
-    lines[start + 1:end] = [""] + kept + new + ([""] if end < len(lines) else [])
+    body = [ln for ln in lines[start + 1:end] if ln.strip() and ln.strip() != "- None."]
+    kept = [ln for ln in body
+            if not ((t := TASK_RE.match(ln)) and t.group(1) == " " and loop_key(ln) in closed)]
+    if not add and len(kept) == len(body):
+        return 0
+    lines[start + 1:end] = [""] + (kept + add or ["- None."]) + ([""] if end < len(lines) else [])
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(nl.join(lines) + nl)
-    return True
+    return len(body) - len(kept)
 
 
 def cmd_carry_forward(args) -> int:
@@ -466,16 +487,20 @@ def cmd_carry_forward(args) -> int:
         print(f"ERROR: --note must be an existing dated note, got {args.note!r}", file=sys.stderr)
         return 1
     later = [n for n in dated_notes(args.note) if note_date(n) > date]
-    pending = [ln for ln in loops_of(args.note).splitlines()
-               if (t := TASK_RE.match(ln)) and t.group(1) == " "]
+    tasks = [ln for ln in loops_of(args.note).splitlines() if TASK_RE.match(ln)]
+    pending = [ln for ln in tasks if TASK_RE.match(ln).group(1) == " "]
+    closed = {loop_key(ln) for ln in tasks if TASK_RE.match(ln).group(1) != " "}
     for note in later:
         if h2_body(strip_code_blocks(read_note(note)), "## Open loops") is None:
             print(f"OK {os.path.basename(note)} predates Open loops, skipped")
             continue
         present = loop_items(loops_of(note))
         pending = [ln for ln in pending if loop_text(ln) not in present]
-        if pending and insert_loops(note, pending):
+        dropped = edit_loops(note, pending, closed)
+        if pending:
             print(f"CARRIED {len(pending)} item(s) into {note}")
+        if dropped > 0:
+            print(f"CLOSED {dropped} item(s) in {note}")
     if not later:
         print("OK no later note")
     return 0
@@ -597,7 +622,7 @@ def cmd_lint(args) -> int:
                 closed = (json.load(open(args.loops_json, encoding="utf-8"))["closed_in_existing"]
                           if args.loops_json else [])
                 problems += lint_structure(raw, note, closed)
-            for i, line in enumerate(raw.splitlines(), 1):
+            for i, line in enumerate(strip_code_blocks(raw).splitlines(), 1):
                 body = strip_code(line)
                 if DASH_RE.search(body):
                     problems.append(f"line {i}: em/en dash in body")
@@ -639,13 +664,15 @@ def cmd_coverage(args) -> int:
 def cmd_check_links(args) -> int:
     vault = os.path.abspath(os.path.expanduser(args.vault))
     scan_root = os.path.join(vault, args.subfolder) if args.subfolder else vault
+    prefix = os.path.relpath(scan_root, vault).replace("\\", "/") + "/" if args.subfolder else ""
     files, stem_to_rel = [], {}
-    for dirpath, dirnames, filenames in os.walk(scan_root):
+    for dirpath, dirnames, filenames in os.walk(vault):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in filenames:
             if fn.endswith(".md"):
                 rel = os.path.relpath(os.path.join(dirpath, fn), vault).replace("\\", "/")
-                files.append(rel)
+                if rel.startswith(prefix):
+                    files.append(rel)
                 stem_to_rel.setdefault(os.path.splitext(fn)[0], rel)
 
     def resolve(target: str):

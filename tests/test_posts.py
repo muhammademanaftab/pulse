@@ -161,7 +161,7 @@ def test_post_links_is_idempotent_and_the_graph_is_whole():
         assert po.cmd_post_links(args) == 0
     assert "CREATED hub" in first.getvalue() and second.getvalue().strip() == "OK", second.getvalue()
     hub = open(os.path.join(root, "Pulse/Posts/2026-06/Pulse Posts 2026-06.md"), encoding="utf-8").read()
-    assert "## Posts\n\n- [[Pulse/Posts/2026-06/2026-06-14|Week of Jun 14]]" in hub, hub
+    assert "## Posts\n\n- [[Pulse/Posts/2026-06/2026-06-14|Week ending Jun 14]]" in hub, hub
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
         for kind, sub, prefix, index in (("daily", "Pulse/Daily", "Pulse", "Pulse Index.md"),
                                          ("weekly", "Pulse/Weekly", "Pulse Weekly", "Pulse Weekly Index.md")):
