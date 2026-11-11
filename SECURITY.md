@@ -39,11 +39,12 @@ each turn it stores, in your Convex deployment:
 
 ## Unattended runs
 
-The nightly digest and weekly synth run unattended with push access to your notes
-repo. Two guards apply:
+The nightly digest, the weekly synth and the weekly post drafts run unattended with
+push access to your notes repo. They push only to that repo: the post writer makes
+drafts for you to review and has no way to publish them. Two guards apply:
 
 - Captured content is treated as untrusted data, never as instructions (see the
-  guard note at the top of `skills/digest/SKILL.md` and `skills/synth/SKILL.md`).
+  guard note at the top of each `SKILL.md`).
 - The routines clone the pulse repo at a pinned release tag, so an unattended agent
   only runs reviewed, tagged code.
 

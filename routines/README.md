@@ -7,6 +7,7 @@ skill on a cron with your machine off. One file here = one routine.
 |---|---|---|
 | Digest | [digest.md](digest.md) | daily, late evening |
 | Synth | [synth.md](synth.md) | weekly, early in the week |
+| Posts | [posts.md](posts.md) | weekly, after the synth |
 
 ## Create the routine (every field)
 
@@ -30,6 +31,12 @@ For the **weekly synth**, create a second routine with the same fields but:
 morning) so the finished week is complete. It reads your daily notes and does not
 touch Convex, so it can share the `pulse` environment (the Convex variables just go
 unused).
+
+For the **weekly post drafts**, create a third routine the same way: `Name` =
+`Pulse Post Drafts`, `Instructions` = the fenced block in [posts.md](posts.md), and
+`Trigger` = weekly, an hour or so after the synth, because it reads the weekly note
+the synth writes. It only writes a drafts file to your notes repo; it has no access
+to LinkedIn or X and never posts.
 
 ## The `pulse` cloud environment
 
@@ -63,7 +70,7 @@ share it.
   instructions clone the public pulse repo at a pinned release tag (currently
   `v0.3.0`) each run, so an unattended push-capable agent only ever runs reviewed,
   tagged code. When you cut a new release, bump the `--branch` tag in
-  `digest.md` and `synth.md`.
+  `digest.md`, `synth.md` and `posts.md`.
 - **Attach the pulse repo:** attach it alongside your notes repo to pin the version.
 
 ## Notes repo access (pick one)

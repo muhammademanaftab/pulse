@@ -35,10 +35,17 @@ digest SKILL" (notes), matching how Eman actually runs it.
   LLM runbook, read by the routine; paths are repo-relative). Writes an Obsidian daily
   note to the user's notes repo, links it into a month hub + index, runs the three
   gates and a reviewer subagent, then commits/pushes and marks rows processed.
+- **Projects:** `skills/projects/projects.py sync` builds one page per project from the
+  daily notes (kept About paragraph, everything else regenerated) and relinks the daily
+  notes to it. The digest runs it after each note.
 - **Synth (L4):** `skills/synth/synth.py` (`collect`, `buckets`, `week-links`, `lint`,
   `coverage`) + `skills/synth/SKILL.md`. Reads the week's daily notes, never Convex.
+- **Posts:** `skills/posts/posts.py` (`collect`, `post-links`, `lint`) + SKILL.md draft a
+  LinkedIn post and an X thread from the weekly note. Drafts only, never posts.
+- **Recall:** `skills/recall/recall.py search` + SKILL.md answer questions from the notes.
+  `install.py recall` installs it to `~/.claude/skills/pulse-recall/`.
 - **Routines:** `routines/` holds claude.ai cloud routines (`digest.md` nightly,
-  `synth.md` weekly) that clone the repo at a pinned tag and run with the machine off.
+  `synth.md` and `posts.md` weekly) that clone the repo at a pinned tag and run with the machine off.
 - **Shared:** `skills/shared/common.py` holds what digest and synth both need (config,
   timezone, the linking rule, hub + index wiring); `skills/shared/humanizer.md` is the
   one tone guide. A new skill is one folder under `skills/` that imports `common`.
@@ -57,9 +64,9 @@ its note is confirmed pushed.
   notes and writes one weekly note (`Pulse/Weekly/`), with its own hub + index,
   gates, and reviewer subagent. Public repo is live. CI compiles the scripts and
   exercises the linking rule, gates, and the synth parser.
-- **Not built yet:** project-note creation and skills tracking (synth v1 is weekly
-  note only; projects still render bold until a project note exists), semantic
-  memory, the safety/redaction firewall, and output heads (devlog/standup/bragdoc).
+- **Done since:** project pages, recall, and the post writer (v0.3.0).
+- **Not built yet:** skills tracking, semantic memory, the safety/redaction firewall,
+  and the other output heads (devlog/standup/bragdoc).
 - **Biggest unknown:** claude.ai-sandbox git-push auth, proven on the first real
   routine run.
 - Working branch: `develop`.
@@ -76,6 +83,7 @@ its note is confirmed pushed.
 
 ## Working rules
 
+- **No comments in code.** Docstrings that double as CLI help are fine.
 - **No em dashes** anywhere (docs, code, comments). Strong standing preference. Use
   commas, periods, colons, parentheses.
 - Plain English, no hype words.

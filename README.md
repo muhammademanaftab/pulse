@@ -57,14 +57,14 @@ Made the app open much faster, fixed a bug that was dropping some notifications,
 
 Pulse is built from small skills. The daily note is the first one: it reads your day and writes it up like you would.
 
-Every other skill just reads those notes. Once your days are written down, you can add more:
+Every other skill just reads those notes. These work today:
 
 - A **weekly recap** of what you got done.
-- A **devlog** or a **brag document** for your manager or a review.
-- **LinkedIn and X posts** about your week, in your own words.
-- A helper that **applies to jobs for you**, using the work you have actually done.
+- A **page per project** that collects its decisions, bugs, rules and open items, and links every day you worked on it.
+- **Recall**: ask "when did I fix the alert bug?" or "why did we pick CSV?" from any project and get the answer with the date and the note it came from.
+- **Post drafts**: a LinkedIn post and an X thread about your week, written from your notes for you to review. Pulse never posts for you.
 
-The daily note and the weekly recap work today. The rest are more of the same: small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
+More can follow the same pattern (a devlog, a brag document for a review): small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
 ## How it works
 
@@ -87,8 +87,11 @@ backend/          the Convex backend that stores your sessions
 skills/
   setup/          install script and the capture hook
   digest/         writes the daily note
+  projects/       keeps one page per project
   synth/          writes the weekly note
-  shared/         code and the writing guide both note skills use
+  posts/          drafts a LinkedIn post and an X thread
+  recall/         answers questions from your notes
+  shared/         code and the writing guide the skills share
 routines/        instructions for the nightly and weekly cloud runs
 tests/           run with python3 tests/test_<name>.py
 ```
@@ -114,7 +117,7 @@ Then, in Claude Code, say **"set up pulse"**. Claude follows the runbook
 ([skills/setup/SKILL.md](skills/setup/SKILL.md)) and walks you through three steps:
 
 1. **Capture:** deploys your Convex backend, stores your credentials, wires the hook. You log in to Convex in your browser once, when Claude asks.
-2. **Daily notes:** Claude asks where your notes should live (it can create `~/pulse-notes`, or use a path you give), writes the config for you, and shows you a first note.
+2. **Daily notes:** Claude asks where your notes should live (it can create `~/pulse-notes`, or use a path you give), writes the config for you, shows you a first note, and installs `/pulse-recall`.
 3. **Nightly routine (optional):** Claude walks you through the cloud routine so notes build every night on their own.
 
 If you would rather run the mechanical parts yourself:
@@ -122,6 +125,7 @@ If you would rather run the mechanical parts yourself:
 ```
 python3 skills/setup/install.py                                       # capture
 python3 skills/setup/install.py notes --repo ~/pulse-notes --create   # notes config
+python3 skills/setup/install.py recall                                # /pulse-recall
 ```
 
 After setup, capture is on and every session is recorded.
@@ -144,10 +148,16 @@ The digest writes into your notes repo, never into this one:
    |     |- Pulse Weekly 2026-06.md  (month hub)
    |     |- 2026-06-28.md            (a weekly note, week ending Sunday)
    |- Projects/
+   |  |- Web App.md                  (a project page)
+   |- Posts/
+      |- Pulse Posts Index.md
+      |- 2026-06/
+         |- Pulse Posts 2026-06.md   (month hub)
+         |- 2026-06-28.md            (that week's post drafts)
 ```
 
-The nightly digest and the weekly synth both run as claude.ai routines and work with
-your machine off. See [routines/](routines/) for the routines and the exact fields to
+The nightly digest, the weekly synth and the weekly post drafts all run as claude.ai
+routines and work with your machine off. See [routines/](routines/) for the routines and the exact fields to
 fill in.
 
 ## Configuration
@@ -160,13 +170,14 @@ Setup writes `~/.pulse/config.yaml` for you from [`config.example.yaml`](config.
 | `notes_repo` | path to your notes git repo |
 | `vault_subfolder` | folder inside it for daily notes (default `Pulse/Daily`) |
 | `weekly_subfolder` | folder for weekly notes (default `Pulse/Weekly`) |
-| `projects_subfolder` | folder for project notes (default `Pulse/Projects`) |
+| `projects_subfolder` | folder for project pages (default `Pulse/Projects`) |
+| `posts_subfolder` | folder for post drafts (default `Pulse/Posts`) |
 | `hub_prefix` | name prefix for the month hubs (default `Pulse`) |
 | `index_name` | file name of the daily index (default `Pulse Index.md`) |
 
 ## Status
 
-Pulse is early (0.x). Capture, the daily-note digest, and the weekly recap work today. Per-project notes and the output agents (devlog, brag document, LinkedIn and X drafts, skill-aware agents) are planned, not built yet. Expect rough edges and breaking changes until 1.0.
+Pulse is early (0.x). Capture, the daily note, project pages, the weekly recap, recall and post drafts work today. A devlog and a brag document are planned, not built yet. Expect rough edges and breaking changes until 1.0.
 
 ## License
 
