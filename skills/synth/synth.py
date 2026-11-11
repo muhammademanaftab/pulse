@@ -21,30 +21,17 @@ import json
 import os
 import re
 import sys
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
     DASH_RE, cfg_get, get_tz, link_into_hubs, load_config, parse_note,
-    render_label, strip_code, utf8_stdio)
+    render_label, resolve_week_end, strip_code, utf8_stdio)
 
 LOOP_RE = re.compile(r"^- \[( |x|X)\] (.+?)\s*\([^()]*(?:\([^()]*\)[^()]*)*since [^()]*\)\s*$")
 
 
 # --- collect (subcommand) ---------------------------------------------------
-
-def resolve_week_end(arg: str | None, tz) -> date:
-    """Sunday of the most recently completed calendar week, or the given date."""
-    if arg:
-        try:
-            return datetime.strptime(arg, "%Y-%m-%d").date()
-        except ValueError:
-            print(f"ERROR: --week-end must be YYYY-MM-DD, got {arg!r}", file=sys.stderr)
-            sys.exit(1)
-    today = datetime.now(tz).date()
-    # weekday(): Monday=0 .. Sunday=6. Days back to the most recent Sunday.
-    return today - timedelta(days=(today.weekday() - 6) % 7)
-
 
 def cmd_collect(args) -> int:
     cfg = load_config()

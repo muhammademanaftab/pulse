@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 MONTHS = ["January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December"]
@@ -91,6 +91,18 @@ def get_tz(cfg: dict):
             print(f"warning: unknown timezone {name!r}, using UTC "
                   "(on Windows: pip install tzdata)", file=sys.stderr)
     return timezone.utc
+
+
+def resolve_week_end(arg: str | None, tz) -> date:
+    """Sunday of the most recently completed calendar week, or the given date."""
+    if arg:
+        try:
+            return datetime.strptime(arg, "%Y-%m-%d").date()
+        except ValueError:
+            print(f"ERROR: --week-end must be YYYY-MM-DD, got {arg!r}", file=sys.stderr)
+            sys.exit(1)
+    today = datetime.now(tz).date()
+    return today - timedelta(days=(today.weekday() - 6) % 7)
 
 
 def render_label(label: str, projects_dir: str | None) -> str:
