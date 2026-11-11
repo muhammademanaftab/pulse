@@ -10,6 +10,7 @@ Subcommands (run `digest.py <cmd> -h` for each):
   lint          gate: note layout, typed bullets, open loops carried, no em dash
   coverage      gate: every digest bucket has a block in the note
   check-links   gate: no dead [[links]] and no orphan notes
+  mark-processed  after the push is verified, mark the digested rows processed
 
 Stdlib only. No LLM (the writing step lives in skills/digest/SKILL.md). Config
 comes from ~/.pulse/config.yaml (env vars win); Convex creds from ~/.pulse/.env.
@@ -37,6 +38,7 @@ TRIVIAL_PROMPTS = {
     "yes", "no", "yep", "yup", "nope", "sure", "cool", "nice", "great", "go",
     "go ahead", "continue", "next", "done", "good", "perfect",
 }
+MARK_BATCH = 500  # the backend rejects more ids per call
 LINK_RE = re.compile(r"\[\[([^\]\|#]+)")
 SKIP_DIRS = {".git", ".obsidian", "node_modules", "__pycache__", ".trash"}
 
@@ -82,6 +84,17 @@ def load_convex_env() -> tuple[str | None, str | None]:
         except Exception:
             pass
     return url, token
+
+
+def convex_creds() -> tuple[str | None, str | None, str | None]:
+    """(url, token, error). error is set when the creds are missing or unsafe."""
+    url, token = load_convex_env()
+    if not url or not token:
+        return None, None, "no CONVEX_URL/CONVEX_TOKEN; run skills/setup/install.py"
+    if not url.startswith("https://"):
+        return None, None, ("CONVEX_URL must start with https:// (refusing to send "
+                            "the token over cleartext)")
+    return url, token, None
 
 
 # --- label map (optional) ---------------------------------------------------
@@ -218,6 +231,11 @@ def is_noise(prompt: str) -> bool:
     return s == "" or s in TRIVIAL_PROMPTS
 
 
+def is_install_probe(event: dict) -> bool:
+    """The row skills/setup/install.py posts to verify the deployment."""
+    return event["session"] == "install-verify" and event["project"] == "pulse-install"
+
+
 def row_id(row: dict) -> str:
     return row.get("_id") or row.get("id") or ""
 
@@ -244,14 +262,9 @@ def cmd_fetch(args) -> int:
     cfg = load_config()
     tz = get_tz(cfg)
     date = resolve_date(args.date, tz)
-    url, token = load_convex_env()
-    if not url or not token:
-        print(json.dumps({"error": "no CONVEX_URL/CONVEX_TOKEN; run skills/setup/install.py",
-                          "date": date}), file=sys.stderr)
-        return 2
-    if not url.startswith("https://"):
-        print(json.dumps({"error": "CONVEX_URL must start with https:// (refusing to send "
-                          "the token over cleartext)", "date": date}), file=sys.stderr)
+    url, token, error = convex_creds()
+    if error:
+        print(json.dumps({"error": error, "date": date}), file=sys.stderr)
         return 2
 
     start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=tz)
@@ -277,7 +290,8 @@ def cmd_fetch(args) -> int:
     if deferred:
         rows = []
     new_ids = [row_id(r) for r in rows if not r.get("processed") and row_id(r)]
-    events = [e for e in (normalize(r) for r in rows) if not is_noise(e["prompt"])]
+    events = [e for e in (normalize(r) for r in rows)
+              if not is_noise(e["prompt"]) and not is_install_probe(e)]
     events.sort(key=lambda e: (e.get("ts", 0), e.get("timestamp", "")))
     grouped: dict[str, list] = {}
     for e, label in zip(events, resolve_labels(events, labels)):
@@ -305,6 +319,36 @@ def cmd_fetch(args) -> int:
         "row_ids": new_ids,
     }
     print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
+# --- mark-processed (subcommand) --------------------------------------------
+
+def cmd_mark_processed(args) -> int:
+    raw = open(args.digest_json, encoding="utf-8").read() if args.digest_json else sys.stdin.read()
+    ids = json.loads(raw).get("row_ids", [])
+    if not ids:
+        print("OK nothing to mark")
+        return 0
+    url, token, error = convex_creds()
+    if error:
+        print(f"FAIL {error}", file=sys.stderr)
+        return 2
+    marked = 0
+    for i in range(0, len(ids), MARK_BATCH):
+        req = Request(f"{url.rstrip('/')}/mark-processed", method="POST",
+                      data=json.dumps({"ids": ids[i:i + MARK_BATCH]}).encode("utf-8"),
+                      headers={"Content-Type": "application/json",
+                               "Authorization": f"Bearer {token}"})
+        try:
+            with urlopen(req, timeout=30) as resp:
+                resp.read()
+        except Exception as e:
+            print(f"FAIL mark-processed after {marked} of {len(ids)} row(s): {e}. "
+                  "Safe to rerun.", file=sys.stderr)
+            return 1
+        marked += len(ids[i:i + MARK_BATCH])
+    print(f"OK marked {marked} row(s) processed")
     return 0
 
 
@@ -723,6 +767,10 @@ def main() -> int:
     cl.add_argument("--vault", required=True)
     cl.add_argument("--subfolder", default=None)
     cl.set_defaults(fn=cmd_check_links)
+
+    mp = sub.add_parser("mark-processed", help="mark the digested rows processed (after the push)")
+    mp.add_argument("--digest-json", default=None, help="the fetch output (reads its row_ids)")
+    mp.set_defaults(fn=cmd_mark_processed)
 
     args = p.parse_args()
     return args.fn(args)

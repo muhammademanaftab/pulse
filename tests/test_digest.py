@@ -418,6 +418,103 @@ def test_fetch_reads_whole_day_and_marks_only_new_rows():
     assert got["event_count"] == 2 and [b["project"] for b in got["buckets"]] == ["Web App"], got
 
 
+def with_fake_convex(fn, respond):
+    """Run fn() with Convex creds set and urlopen replaced; returns the requests seen."""
+    seen = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        seen.append(req)
+        return Resp(json.dumps(respond(req)).encode())
+
+    env = {"PULSE_HOME": tempfile.mkdtemp(), "CONVEX_URL": "https://x.example",
+           "CONVEX_TOKEN": "t", "PULSE_TZ": "UTC"}
+    old_env, old_open = {k: os.environ.get(k) for k in env}, dg.urlopen
+    os.environ.update(env)
+    dg.urlopen = fake_urlopen
+    try:
+        fn()
+    finally:
+        dg.urlopen = old_open
+        for k, v in old_env.items():
+            os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
+    return seen
+
+
+def test_install_probe_row_is_marked_but_never_digested():
+    rows = [{"_id": "p", "ts": 1780394400000, "message": "pulse install verification probe",
+             "project": "pulse-install", "projectPath": "/", "sessionId": "install-verify",
+             "processed": False}]
+    out = io.StringIO()
+
+    def run():
+        with contextlib.redirect_stdout(out):
+            assert dg.cmd_fetch(type("A", (), {"date": "2026-06-02", "include_today": False})) == 0
+
+    with_fake_convex(run, lambda req: {"rows": rows})
+    got = json.loads(out.getvalue())
+    assert got["event_count"] == 0 and got["buckets"] == [] and got["row_ids"] == ["p"], got
+
+
+def test_mark_processed_batches_by_500():
+    ids = [f"id{i}" for i in range(1200)]
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump({"row_ids": ids}, f)
+    out = io.StringIO()
+
+    def run():
+        with contextlib.redirect_stdout(out):
+            assert dg.cmd_mark_processed(type("A", (), {"digest_json": f.name})) == 0
+
+    seen = with_fake_convex(run, lambda req: {"ok": True})
+    os.unlink(f.name)
+    sent = [json.loads(r.data)["ids"] for r in seen]
+    assert [len(b) for b in sent] == [500, 500, 200] and sum(sent, []) == ids, [len(b) for b in sent]
+    assert all(r.full_url == "https://x.example/mark-processed" and r.get_method() == "POST"
+               and r.get_header("Authorization") == "Bearer t" for r in seen)
+    assert "marked 1200 row(s)" in out.getvalue(), out.getvalue()
+
+
+def test_mark_processed_with_no_rows_sends_nothing():
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump({"row_ids": []}, f)
+
+    def run():
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert dg.cmd_mark_processed(type("A", (), {"digest_json": f.name})) == 0
+
+    assert with_fake_convex(run, lambda req: {"ok": True}) == []
+    os.unlink(f.name)
+
+
+def test_mark_processed_stops_on_a_failed_batch():
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump({"row_ids": [f"id{i}" for i in range(600)]}, f)
+    calls = []
+
+    def respond(req):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError("boom")
+        return {"ok": True}
+
+    err = io.StringIO()
+
+    def run():
+        with contextlib.redirect_stderr(err):
+            assert dg.cmd_mark_processed(type("A", (), {"digest_json": f.name})) == 1
+
+    with_fake_convex(run, respond)
+    os.unlink(f.name)
+    assert "after 500 of 600" in err.getvalue(), err.getvalue()
+
+
 # --- labels, noise folders, deferral ----------------------------------------
 
 def test_load_labels_reads_noise_patterns():

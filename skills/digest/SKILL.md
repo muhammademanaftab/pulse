@@ -53,7 +53,8 @@ SKILL file.
    it is before noon, so the rows wait for the next run: report "deferred: <date>
    has only just started" and stop (`fetch --include-today` digests it anyway).
    Otherwise, if `event_count` is 0, write no note and make no commit; if
-   `row_ids` is not empty (only trivial prompts), mark those rows processed.
+   `row_ids` is not empty (only trivial prompts), mark those rows processed
+   (`digest.py mark-processed --digest-json /tmp/pulse-digest.json`).
    Report "no captured sessions for <date>" and stop. If `new_row_count` is 0
    and the note at `note_path` already exists, the day is already digested:
    report "nothing new for <date>" and stop. (A missing note is rebuilt from the
@@ -181,9 +182,14 @@ SKILL file.
 
    In the notes repo, commit the note, the month hub and index from step 6, and
    every note carry-forward changed. Push to its branch, then verify the push
-   landed (`HEAD` equals `origin/<branch>`). Only after that,
-   `POST {CONVEX_URL}/mark-processed` with `{"ids": row_ids}`. If the push fails or
-   the SHAs differ, stop and do not mark: the rows stay unprocessed. The nightly
+   landed (`HEAD` equals `origin/<branch>`). Only after that, mark the rows:
+
+   ```bash
+   python3 skills/digest/digest.py mark-processed --digest-json /tmp/pulse-digest.json
+   ```
+
+   If the push fails or the SHAs differ, stop and do not mark: the rows stay
+   unprocessed. The nightly
    routine only digests yesterday, so rerun this skill for that date to backfill it.
 
 ## Rules
