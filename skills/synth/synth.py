@@ -14,109 +14,33 @@ Convex. Config comes from ~/.pulse/config.yaml (env vars win). A project links
 as [[Project]] only when its note exists in projects_dir, else plain **bold**
 (no dead links), the same existence rule the digest uses.
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import re
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import timedelta
 
-MONTHS = ["January", "February", "March", "April", "May", "June", "July",
-          "August", "September", "October", "November", "December"]
-MON_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
-            "Oct", "Nov", "Dec"]
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
+from common import (  # noqa: E402
+    BANNED_RE, DASH_RE, cfg_get, get_tz, h2_body, link_into_hubs, load_config, notes_repo_dir,
+    parse_note, read_note, render_label, resolve_week_end, strip_code_blocks, strip_code, utf8_stdio)
 
-DASH_RE = re.compile(r"[—–]")
-FENCE_RE = re.compile(r"```.*?```", re.S)
-CODE_RE = re.compile(r"`[^`\n]*`")
-# Work-log headings the digest writes: `### [[Project]]` or `### **Project**`.
-HEADING_RE = re.compile(
-    r"^###\s+(?:\[\[(?P<link>[^\]#|]+)(?:[#|][^\]]*)?\]\]|\*\*(?P<bold>[^*]+)\*\*)")
-ANY_H3_RE = re.compile(r"^###\s")
-H2_RE = re.compile(r"^##\s")
-BULLET_RE = re.compile(r"^\s*-\s+(.*)$")
+WEEKLY_SECTIONS = ["## What you worked on", "## What I skipped (and why)",
+                   "## One number to remember", "## Sources"]
+COVERAGE_SECTIONS = ["## What you worked on", "## What I skipped (and why)"]
 LOOP_RE = re.compile(r"^- \[( |x|X)\] (.+?)\s*\([^()]*(?:\([^()]*\)[^()]*)*since [^()]*\)\s*$")
 
 
-def strip_code(text: str) -> str:
-    return CODE_RE.sub("", FENCE_RE.sub("", text))
-
-
-# --- config -----------------------------------------------------------------
-
-def pulse_home() -> str:
-    return os.path.expanduser(os.environ.get("PULSE_HOME", "~/.pulse"))
-
-
-def read_config(path: str) -> dict:
-    cfg: dict = {}
-    if not os.path.isfile(path):
-        return cfg
-    try:
-        for line in open(path, encoding="utf-8"):
-            line = line.split("#", 1)[0].strip()
-            if not line or ":" not in line:
-                continue
-            k, v = line.split(":", 1)
-            k, v = k.strip(), v.strip().strip('"').strip("'")
-            if v:
-                cfg[k] = v
-    except Exception:
-        pass
-    return cfg
-
-
-def cfg_get(cfg: dict, key: str, env: str | None, default: str) -> str:
-    if env and os.environ.get(env):
-        return os.environ[env]
-    return cfg.get(key, default)
-
-
-def get_tz(cfg: dict):
-    name = cfg_get(cfg, "timezone", "PULSE_TZ", "UTC")
-    if name and name != "UTC":
-        try:
-            from zoneinfo import ZoneInfo
-            return ZoneInfo(name)
-        except Exception:
-            # Windows Python ships no tz database; without this the day window
-            # would silently shift to UTC.
-            print(f"warning: unknown timezone {name!r}, using UTC "
-                  "(on Windows: pip install tzdata)", file=sys.stderr)
-    return timezone.utc
-
-
-# --- linking rule (existence-based, same as the digest) ---------------------
-
-def render_label(label: str, projects_dir: str | None) -> str:
-    if projects_dir and os.path.isfile(
-            os.path.join(os.path.expanduser(projects_dir), f"{label}.md")):
-        return f"[[{label}]]"
-    return f"**{label}**"
-
-
-# --- collect (subcommand) ---------------------------------------------------
-
-def resolve_week_end(arg: str | None, tz) -> date:
-    """Sunday of the most recently completed calendar week, or the given date."""
-    if arg:
-        try:
-            return datetime.strptime(arg, "%Y-%m-%d").date()
-        except ValueError:
-            print(f"ERROR: --week-end must be YYYY-MM-DD, got {arg!r}", file=sys.stderr)
-            sys.exit(1)
-    today = datetime.now(tz).date()
-    # weekday(): Monday=0 .. Sunday=6. Days back to the most recent Sunday.
-    return today - timedelta(days=(today.weekday() - 6) % 7)
-
-
 def cmd_collect(args) -> int:
-    cfg = read_config(os.path.join(pulse_home(), "config.yaml"))
+    cfg = load_config()
     tz = get_tz(cfg)
     week_end = resolve_week_end(args.week_end, tz)
     week_start = week_end - timedelta(days=6)
 
-    notes_repo = os.path.expanduser(cfg_get(cfg, "notes_repo", "NOTES_REPO", ""))
+    notes_repo = notes_repo_dir(cfg)
     vault_subfolder = cfg_get(cfg, "vault_subfolder", "PULSE_VAULT_SUBFOLDER", "Pulse/Daily")
     projects_subfolder = cfg_get(cfg, "projects_subfolder", "PULSE_PROJECTS_SUBFOLDER", "Pulse/Projects")
     weekly_subfolder = cfg_get(cfg, "weekly_subfolder", "PULSE_WEEKLY_SUBFOLDER", "Pulse/Weekly")
@@ -159,64 +83,6 @@ def cmd_collect(args) -> int:
     return 0
 
 
-# --- buckets (subcommand) ---------------------------------------------------
-
-def parse_note(text: str):
-    """Return (summary, blocks). summary is the ## Summary text; blocks is a
-    list of {project, bold, bullets} from the ## Work log section."""
-    summary_lines: list[str] = []
-    blocks: list[dict] = []
-    current: dict | None = None
-    section = None  # None | "summary" | "worklog"
-
-    for raw in text.splitlines():
-        line = raw.rstrip()
-        low = line.strip().lower()
-        if H2_RE.match(line):
-            if current:
-                blocks.append(current)
-                current = None
-            if low == "## summary":
-                section = "summary"
-            elif low == "## work log":
-                section = "worklog"
-            else:
-                section = None
-            continue
-
-        if section == "summary":
-            if line.strip():
-                summary_lines.append(line.strip())
-            continue
-
-        if section != "worklog":
-            continue
-
-        m = HEADING_RE.match(line)
-        if m:
-            if current:
-                blocks.append(current)
-            linked = m.group("link")
-            bold = m.group("bold")
-            current = {"project": (linked or bold).strip(),
-                       "bold": linked is None, "bullets": []}
-            continue
-        if ANY_H3_RE.match(line):  # an H3 with no recognizable label ends the block
-            if current:
-                blocks.append(current)
-                current = None
-            continue
-        if current is None:
-            continue
-        b = BULLET_RE.match(line)
-        if b:
-            current["bullets"].append(b.group(1).strip())
-
-    if current:
-        blocks.append(current)
-    return " ".join(summary_lines).strip(), blocks
-
-
 def cmd_buckets(args) -> int:
     with open(args.week_json, encoding="utf-8") as f:
         week = json.load(f)
@@ -227,16 +93,19 @@ def cmd_buckets(args) -> int:
     daily_summaries = []
     scanned = 0
     loop_state: dict[str, str] = {}
+    missing = [rel for rel in week.get("notes", [])
+               if not os.path.isfile(os.path.join(repo, rel) if repo else rel)]
+    if missing:
+        print(f"ERROR: {len(missing)} daily note(s) listed by `collect` were not found "
+              f"under {repo or os.getcwd()!r}: {missing[0]}", file=sys.stderr)
+        return 1
     for rel in week.get("notes", []):
         full = os.path.join(repo, rel) if repo else rel
-        if not os.path.isfile(full):
-            continue
         scanned += 1
         note_date = os.path.splitext(os.path.basename(rel))[0]
-        text = open(full, encoding="utf-8").read()
+        text = strip_code_blocks(read_note(full))
         summary, blocks = parse_note(text)
-        loops = re.search(r"^## Open loops[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-        for ln in (loops.group(1) if loops else "").splitlines():
+        for ln in (h2_body(text, "## Open loops") or "").splitlines():
             if (t := LOOP_RE.match(ln)):
                 loop_state[t.group(2)] = ln
         if summary:
@@ -262,71 +131,9 @@ def cmd_buckets(args) -> int:
     return 0
 
 
-# --- week-links (subcommand) ------------------------------------------------
-
-def _upsert_list(text: str, heading: str, new_line: str, reverse: bool = False):
-    if new_line in text:
-        return text, False
-    lines = text.split("\n")
-    try:
-        h = lines.index(heading)
-    except ValueError:
-        return text.rstrip("\n") + f"\n\n{heading}\n\n{new_line}\n", True
-    i = h + 1
-    while i < len(lines) and lines[i].strip() == "":
-        i += 1
-    start = i
-    while i < len(lines) and lines[i].startswith("- "):
-        i += 1
-    lines[start:i] = sorted(set(lines[start:i] + [new_line]), reverse=reverse)
-    out = "\n".join(lines)
-    return (out if out.endswith("\n") else out + "\n"), True
-
-
 def cmd_week_links(args) -> int:
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
-        print(f"ERROR: --date must be YYYY-MM-DD, got {args.date!r}", file=sys.stderr)
-        return 1
-    vault = os.path.abspath(os.path.expanduser(args.vault))
-    ym = args.date[:7]
-    y, m = ym.split("-")
-    mname = f"{MONTHS[int(m) - 1]} {y}"
-    sub = args.subfolder.strip("/")
-    hub_name = f"{args.hub_prefix} {ym}"
-    hub_path = os.path.join(vault, sub, ym, f"{hub_name}.md")
-    index_path = os.path.join(vault, sub, args.index)
-    index_stem = os.path.splitext(args.index)[0]
-    d = datetime.strptime(args.date, "%Y-%m-%d")
-    label = f"Week of {MON_ABBR[d.month - 1]} {d.day}"
+    return link_into_hubs(args, "weekly")
 
-    if not os.path.isfile(hub_path):
-        os.makedirs(os.path.dirname(hub_path), exist_ok=True)
-        open(hub_path, "w", encoding="utf-8", newline="\n").write(
-            f"---\ntype: weekly-hub\nmonth: \"{ym}\"\ntags: [pulse, hub]\n---\n\n"
-            f"# {args.hub_prefix} notes, {mname}\n\nPart of [[{index_stem}]].\n\n## Weeks\n")
-        print(f"CREATED hub {hub_path}")
-    week_link = f"- [[{sub}/{ym}/{args.date}|{label}]]"
-    text, changed = _upsert_list(open(hub_path, encoding="utf-8").read(), "## Weeks", week_link)
-    if changed:
-        open(hub_path, "w", encoding="utf-8", newline="\n").write(text)
-        print(f"LINKED {args.date} in {os.path.basename(hub_path)}")
-
-    if not os.path.isfile(index_path):
-        os.makedirs(os.path.dirname(index_path), exist_ok=True)
-        open(index_path, "w", encoding="utf-8", newline="\n").write(
-            f"---\ntype: index\ntags: [pulse, index]\n---\n\n# {args.hub_prefix} notes\n\n"
-            f"Auto-maintained index of weekly note hubs.\n\n## Months\n")
-        print(f"CREATED index {index_path}")
-    text, changed = _upsert_list(open(index_path, encoding="utf-8").read(),
-                                 "## Months", f"- [[{hub_name}|{mname}]]", reverse=True)
-    if changed:
-        open(index_path, "w", encoding="utf-8", newline="\n").write(text)
-        print(f"LINKED {hub_name} in {os.path.basename(index_path)}")
-    print("OK")
-    return 0
-
-
-# --- lint (subcommand) ------------------------------------------------------
 
 def cmd_lint(args) -> int:
     failed = False
@@ -339,12 +146,28 @@ def cmd_lint(args) -> int:
         else:
             if not raw.lstrip().startswith("---"):
                 problems.append("missing YAML frontmatter")
+            body = strip_code_blocks(raw)
+            h2s = [m.group(1).rstrip() for m in re.finditer(r"^(## .*)$", body, re.M)]
             for sec in ("## What you worked on", "## Sources"):
-                if sec not in raw:
+                if sec not in h2s:
                     problems.append(f"missing section: {sec}")
-            for i, line in enumerate(raw.splitlines(), 1):
-                if DASH_RE.search(strip_code(line)):
+            extra = [h for h in h2s if h not in WEEKLY_SECTIONS]
+            if extra:
+                problems.append(f"unexpected sections {extra} (allowed: {WEEKLY_SECTIONS})")
+            if not re.search(r"^# \S", body, re.M):
+                problems.append("missing the `# Week of ...` title")
+            sources, _, footer = (h2_body(body, "## Sources") or "").partition("\n---")
+            if "[[" not in sources:
+                problems.append("## Sources must link the daily notes that were read")
+            if "## Sources" in h2s and "Part of [[" not in footer:
+                problems.append("missing the `Part of [[<weekly hub>|<Month YYYY>]]` footer "
+                                "after a `---` rule")
+            for i, line in enumerate(body.splitlines(), 1):
+                text = strip_code(line)
+                if DASH_RE.search(text):
                     problems.append(f"line {i}: em/en dash in body")
+                if (w := BANNED_RE.search(text)):
+                    problems.append(f"line {i}: AI-tell phrase {w.group(0)!r} (see humanizer.md)")
         if problems:
             failed = True
             print(f"FAIL {note}", file=sys.stderr)
@@ -355,8 +178,6 @@ def cmd_lint(args) -> int:
     return 1 if failed else 0
 
 
-# --- coverage (subcommand) --------------------------------------------------
-
 def cmd_coverage(args) -> int:
     raw = open(args.buckets, encoding="utf-8").read() if args.buckets else sys.stdin.read()
     buckets = json.loads(raw).get("buckets", {})
@@ -366,18 +187,20 @@ def cmd_coverage(args) -> int:
         print(f"FAIL cannot read weekly note: {e}", file=sys.stderr)
         return 1
     ignore = set(args.ignore) if args.ignore else {"Misc"}
-    # Word-boundary match so a label ("Auth") is not counted as present just
-    # because a longer word ("Authentication") contains it. A label that is a
-    # standalone word inside a longer phrase ("App" in "Web App") still counts.
+    heads = [ln[2:].split(":", 1)[0] for section in COVERAGE_SECTIONS
+             for ln in (h2_body(strip_code_blocks(note), section) or "").splitlines()
+             if ln.startswith("- ")]
+
     def named(label: str) -> bool:
-        return re.search(rf"(?<!\w){re.escape(label)}(?!\w)", note) is not None
+        return any(re.search(rf"(?<!\w){re.escape(label)}(?!\w)", h) for h in heads)
     missing = [label for label in buckets if label not in ignore and not named(label)]
     if missing:
         print(f"FAIL coverage: {len(missing)} project(s) that appeared this week are "
               f"not named in {args.weekly_note}", file=sys.stderr)
         for label in missing:
             print(f"  - {label}", file=sys.stderr)
-        print("Do NOT push. Name every project in worked-on or skipped, then rerun.",
+        print("Do NOT push. Start a bullet with each project's name in "
+              "\"What you worked on\" or \"What I skipped (and why)\", then rerun.",
               file=sys.stderr)
         return 1
     print(f"OK coverage: all {len([l for l in buckets if l not in ignore])} "
@@ -385,12 +208,8 @@ def cmd_coverage(args) -> int:
     return 0
 
 
-# --- dispatch ---------------------------------------------------------------
-
 def main() -> int:
-    # Piped stdio uses the console codepage on Windows; JSON and notes are UTF-8.
-    for stream in (sys.stdin, sys.stdout):
-        stream.reconfigure(encoding="utf-8")
+    utf8_stdio()
     p = argparse.ArgumentParser(description="Pulse weekly synthesizer (L4).")
     sub = p.add_subparsers(dest="cmd", required=True)
 

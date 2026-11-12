@@ -7,6 +7,7 @@ skill on a cron with your machine off. One file here = one routine.
 |---|---|---|
 | Digest | [digest.md](digest.md) | daily, late evening |
 | Synth | [synth.md](synth.md) | weekly, early in the week |
+| Posts | [posts.md](posts.md) | weekly, after the synth |
 
 ## Create the routine (every field)
 
@@ -21,7 +22,7 @@ digest; the weekly synth uses the same shape with the changes noted underneath.
 | **Repos** | your **notes** repo (gets the note). For the pulse code, pick one below. |
 | **Trigger** | daily cron, late in your day (e.g. `11:59 PM` in your timezone) |
 | **Environment** | the `pulse` cloud environment below |
-| **Permissions** | allow git push to the notes repo |
+| **Permissions** | allow git push to the notes repo, and subagents (each skill has a reviewer subagent check its work before pushing) |
 | **Connectors** | GitHub connector if you attach the notes repo instead of using a token |
 
 For the **weekly synth**, create a second routine with the same fields but:
@@ -30,6 +31,12 @@ For the **weekly synth**, create a second routine with the same fields but:
 morning) so the finished week is complete. It reads your daily notes and does not
 touch Convex, so it can share the `pulse` environment (the Convex variables just go
 unused).
+
+For the **weekly post drafts**, create a third routine the same way: `Name` =
+`Pulse Post Drafts`, `Instructions` = the fenced block in [posts.md](posts.md), and
+`Trigger` = weekly, an hour or so after the synth, because it reads the weekly note
+the synth writes. It only writes a drafts file to your notes repo; it has no access
+to LinkedIn or X and never posts.
 
 ## The `pulse` cloud environment
 
@@ -50,6 +57,8 @@ NOTES_REPO_REMOTE=https://github.com/<you>/<notes-repo>.git
 GITHUB_TOKEN=<fine-grained PAT, contents read/write on the notes repo>
 ```
 
+`NOTES_REPO` is the folder name of your notes repo in the routine's workspace; the
+routine instructions turn it into an absolute path before running anything.
 `CONVEX_URL` and `CONVEX_TOKEN` are the same values `~/.pulse/.env` holds. `GITHUB_TOKEN`
 is only needed for the token path (skip it if you attach the notes repo as a connector).
 
@@ -61,9 +70,9 @@ share it.
 
 - **Clone at runtime (recommended):** attach only your notes repo; the routine's
   instructions clone the public pulse repo at a pinned release tag (currently
-  `v0.2.0`) each run, so an unattended push-capable agent only ever runs reviewed,
+  `v0.3.0`) each run, so an unattended push-capable agent only ever runs reviewed,
   tagged code. When you cut a new release, bump the `--branch` tag in
-  `digest.md` and `synth.md`.
+  `digest.md`, `synth.md` and `posts.md`.
 - **Attach the pulse repo:** attach it alongside your notes repo to pin the version.
 
 ## Notes repo access (pick one)

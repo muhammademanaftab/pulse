@@ -3,23 +3,25 @@
 
 Stdlib only, no test framework: plain asserts, runnable directly.
 
-    python3 skills/digest/test_digest.py
+    python3 tests/test_digest.py
 
 Covers the typed-bullet lint, open-loop carry-forward, scratch-folder label
-folding, the before-noon deferral, and that the weekly synth still parses the
-new layout.
+folding, and the before-noon deferral.
 """
+from __future__ import annotations
+
 import contextlib
 import importlib.util
 import io
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(HERE))
+REPO = os.path.dirname(HERE)
 
 
 def load(name, path):
@@ -29,8 +31,7 @@ def load(name, path):
     return mod
 
 
-dg = load("digest", os.path.join(HERE, "digest.py"))
-sy = load("synth", os.path.join(REPO, "skills", "synth", "synth.py"))
+dg = load("digest", os.path.join(REPO, "skills", "digest", "digest.py"))
 
 GOOD = """---
 date: "2026-06-02"
@@ -92,8 +93,6 @@ def assert_fails(text: str, needle: str, **kw):
     problems = lint(text, **kw)
     assert any(needle in p for p in problems), (needle, problems)
 
-
-# --- lint: layout and typed bullets -----------------------------------------
 
 def test_good_note_passes():
     assert lint(GOOD) == [], lint(GOOD)
@@ -245,8 +244,6 @@ def test_banned_phrase_inside_code_is_fine():
     assert not dg.BANNED_RE.search(dg.strip_code("Renamed `non-trivial-check.sh`"))
 
 
-# --- open loops carry forward -------------------------------------------------
-
 PREV = GOOD.replace('date: "2026-06-02"', 'date: "2026-06-01"').replace(
     "- [ ] Add the preview button to mobile. (Web App, since Jun 2)",
     "- [ ] Add the preview button to mobile. (Web App, since Jun 2)\n"
@@ -367,6 +364,59 @@ def test_carry_forward_after_backfill():
     assert "no later note" in carry_forward(note_path(root, "2026-06-05"))
 
 
+def test_backfill_that_closes_an_item_closes_it_in_later_notes():
+    later = GOOD.replace("- Open: Add the preview button to mobile.\n", "")
+    extra = later.replace("(Web App, since Jun 2)\n",
+                          "(Web App, since Jun 2)\n- [ ] Call Sam. (Web App, since Jun 3)\n", 1)
+    backfill = later.replace("- [ ] Add the preview button to mobile. (Web App, since Jun 2)",
+                             "- [x] Add the preview button to mobile. (Web App, since Jun 2, done Jun 3)")
+    root = vault_with({"2026-06-03": backfill, "2026-06-04": later, "2026-06-05": extra})
+    out = carry_forward(note_path(root, "2026-06-03"))
+    assert out.count("CLOSED 1 item(s)") == 2, out
+    items = lambda d: dg.loop_items(dg.loops_of(note_path(root, d)))
+    assert items("2026-06-04") == {} and "- None." in dg.loops_of(note_path(root, "2026-06-04"))
+    assert items("2026-06-05") == {"Call Sam.": " "}
+    for d in ("2026-06-04", "2026-06-05"):
+        problems = lint(dg.read_note(note_path(root, d)), root=root, date=d)
+        assert problems == [], (d, problems)
+    assert "CLOSED" not in carry_forward(note_path(root, "2026-06-03"))
+
+
+def test_an_item_reopened_later_is_not_closed_by_a_backfill():
+    backfill = GOOD.replace("- Open: Add the preview button to mobile.\n", "").replace(
+        "- [ ] Add the preview button to mobile. (Web App, since Jun 2)",
+        "- [x] Add the preview button to mobile. (Web App, since Jun 2, done Jun 3)")
+    reopened = GOOD.replace("since Jun 2)", "since Jun 5)")
+    root = vault_with({"2026-06-03": backfill, "2026-06-05": reopened})
+    assert "CLOSED" not in carry_forward(note_path(root, "2026-06-03"))
+
+
+def test_check_links_resolves_pages_outside_the_scanned_folder():
+    root = tempfile.mkdtemp()
+    os.makedirs(os.path.join(root, "Daily", "2026-06"))
+    os.makedirs(os.path.join(root, "Projects"))
+    with open(os.path.join(root, "Daily", "2026-06", "2026-06-02.md"), "w", encoding="utf-8") as f:
+        f.write("See [[Web App]] and [[Daily/2026-06/other|x]].\n")
+    with open(os.path.join(root, "Daily", "2026-06", "other.md"), "w", encoding="utf-8") as f:
+        f.write("Back to [[2026-06-02]].\n")
+    with open(os.path.join(root, "Projects", "Web App.md"), "w", encoding="utf-8") as f:
+        f.write("# Web App\n\n[[Missing]]\n")
+    run = lambda sub: dg.cmd_check_links(type("A", (), {"vault": root, "subfolder": sub}))
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        assert run("Daily") == 0
+        assert run(None) == 1
+
+
+def test_labels_are_cleaned_and_a_bad_date_is_a_clean_error():
+    assert dg.clean_label('say "hi" a*b') == "say hi a b"
+    assert dg.clean_label("client/server: v2") == "client server v2"
+    assert dg.clean_label("Web App (beta)") == "Web App (beta)"
+    assert dg.clean_label("***") == "Misc"
+    with contextlib.redirect_stderr(io.StringIO()) as err:
+        assert dg.cmd_fetch(type("A", (), {"date": "2026-13-01", "include_today": False})) == 2
+    assert "--date must be" in json.loads(err.getvalue())["error"]
+
+
 def test_carry_forward_skips_legacy_notes_and_fenced_headings():
     legacy = "---\nx: 1\n---\n\n# Old\n\n## Summary\n\nS.\n\n## Work log\n\n## Next\n\n- Ship\n"
     fenced = GOOD.replace("- Refs: PR #41, `home.tsx`", "- Refs: PR #41\n```\n## Open loops\n```")
@@ -418,7 +468,102 @@ def test_fetch_reads_whole_day_and_marks_only_new_rows():
     assert got["event_count"] == 2 and [b["project"] for b in got["buckets"]] == ["Web App"], got
 
 
-# --- labels, noise folders, deferral ----------------------------------------
+def with_fake_convex(fn, respond):
+    """Run fn() with Convex creds set and urlopen replaced; returns the requests seen."""
+    seen = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        seen.append(req)
+        return Resp(json.dumps(respond(req)).encode())
+
+    env = {"PULSE_HOME": tempfile.mkdtemp(), "CONVEX_URL": "https://x.example",
+           "CONVEX_TOKEN": "t", "PULSE_TZ": "UTC"}
+    old_env, old_open = {k: os.environ.get(k) for k in env}, dg.urlopen
+    os.environ.update(env)
+    dg.urlopen = fake_urlopen
+    try:
+        fn()
+    finally:
+        dg.urlopen = old_open
+        for k, v in old_env.items():
+            os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
+    return seen
+
+
+def test_install_probe_row_is_marked_but_never_digested():
+    rows = [{"_id": "p", "ts": 1780394400000, "message": "pulse install verification probe",
+             "project": "pulse-install", "projectPath": "/", "sessionId": "install-verify",
+             "processed": False}]
+    out = io.StringIO()
+
+    def run():
+        with contextlib.redirect_stdout(out):
+            assert dg.cmd_fetch(type("A", (), {"date": "2026-06-02", "include_today": False})) == 0
+
+    with_fake_convex(run, lambda req: {"rows": rows})
+    got = json.loads(out.getvalue())
+    assert got["event_count"] == 0 and got["buckets"] == [] and got["row_ids"] == ["p"], got
+
+
+def test_mark_processed_batches_by_500():
+    ids = [f"id{i}" for i in range(1200)]
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump({"row_ids": ids}, f)
+    out = io.StringIO()
+
+    def run():
+        with contextlib.redirect_stdout(out):
+            assert dg.cmd_mark_processed(type("A", (), {"digest_json": f.name})) == 0
+
+    seen = with_fake_convex(run, lambda req: {"ok": True})
+    os.unlink(f.name)
+    sent = [json.loads(r.data)["ids"] for r in seen]
+    assert [len(b) for b in sent] == [500, 500, 200] and sum(sent, []) == ids, [len(b) for b in sent]
+    assert all(r.full_url == "https://x.example/mark-processed" and r.get_method() == "POST"
+               and r.get_header("Authorization") == "Bearer t" for r in seen)
+    assert "marked 1200 row(s)" in out.getvalue(), out.getvalue()
+
+
+def test_mark_processed_with_no_rows_sends_nothing():
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump({"row_ids": []}, f)
+
+    def run():
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert dg.cmd_mark_processed(type("A", (), {"digest_json": f.name})) == 0
+
+    assert with_fake_convex(run, lambda req: {"ok": True}) == []
+    os.unlink(f.name)
+
+
+def test_mark_processed_stops_on_a_failed_batch():
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump({"row_ids": [f"id{i}" for i in range(600)]}, f)
+    calls = []
+
+    def respond(req):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError("boom")
+        return {"ok": True}
+
+    err = io.StringIO()
+
+    def run():
+        with contextlib.redirect_stderr(err):
+            assert dg.cmd_mark_processed(type("A", (), {"digest_json": f.name})) == 1
+
+    with_fake_convex(run, respond)
+    os.unlink(f.name)
+    assert "after 500 of 600" in err.getvalue(), err.getvalue()
+
 
 def test_load_labels_reads_noise_patterns():
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as f:
@@ -440,11 +585,11 @@ def test_noise_folder_takes_session_label():
                                                 "project": re.split(r"[/\\]", cwd)[-1]})
     events = [
         ev(100, "/home/u/web", "s1"),
-        ev(200, "/tmp", "s1"),                     # nearest real row in s1 -> Web App
+        ev(200, "/tmp", "s1"),
         ev(300, "/home/u/api", "s2"),
-        ev(900, "/home/u/scratch-2", "s2"),        # -> api
-        ev(400, "/work/infra/tmp", "s3"),          # path_patterns on the full path wins
-        ev(500, "C:\\Users\\u\\tmp", "s4"),        # Windows path, no real row -> fallback
+        ev(900, "/home/u/scratch-2", "s2"),
+        ev(400, "/work/infra/tmp", "s3"),
+        ev(500, "C:\\Users\\u\\tmp", "s4"),
     ]
     assert dg.resolve_labels(events, labels) == ["Web App", "Web App", "api", "api", "Infra", "Misc"]
 
@@ -457,6 +602,15 @@ def test_mapping_beats_noise_pattern_and_bad_regex_warns():
         assert dg.resolve_labels(events, labels) == ["Pulse"]
         assert not dg.is_noise_folder({"cwd": "/u/x", "project": "x"}, labels)
     assert "bad regex" in err.getvalue(), err.getvalue()
+
+
+def test_config_values_keep_a_hash_inside_quotes_or_without_a_space():
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+        f.write('# header\nnotes_repo: "/u/my notes #1"\nhub_prefix: Pulse  # trailing\n'
+                "vault_subfolder: C#/Daily\nempty:\n")
+    cfg = sys.modules["common"].read_config(f.name)
+    os.unlink(f.name)
+    assert cfg == {"notes_repo": "/u/my notes #1", "hub_prefix": "Pulse", "vault_subfolder": "C#/Daily"}, cfg
 
 
 def test_label_comments_keep_hash_in_values():
@@ -478,36 +632,6 @@ def test_defer_today_before_noon_only():
     assert not dg.defer_today("2026-06-02", morning, True)
     assert not dg.defer_today("2026-06-02", evening, False)
     assert not dg.defer_today("2026-06-01", morning, False)
-
-
-# --- the weekly synth still reads the new layout ----------------------------
-
-def test_synth_parses_new_layout():
-    summary, blocks = sy.parse_note(GOOD)
-    assert summary.startswith("Made the home page faster"), summary
-    assert [(b["project"], b["bold"]) for b in blocks] == [("Web App", False), ("Notifications", True)]
-    assert blocks[0]["bullets"][0].startswith("Outcome: "), blocks[0]["bullets"]
-    assert len(blocks[1]["bullets"]) == 2, blocks[1]["bullets"]
-
-
-def test_synth_reports_latest_loop_state_for_the_week():
-    root = tempfile.mkdtemp()
-    days = {"2026-06-08": "- [ ] Ship it. (Web App (beta), since Jun 8)\n- [ ] Call Sam. (Web App, since Jun 8)",
-            "2026-06-09": "- [x] Ship it. (Web App (beta), since Jun 8, done Jun 9)\n"
-                          "- [ ] Call Sam. (Web App, since Jun 8)",
-            "2026-06-10": "- [ ] Call Sam. (Web App, since Jun 8; tried Jun 10)"}
-    for date, loops in days.items():
-        os.makedirs(os.path.join(root, date[:7]), exist_ok=True)
-        with open(note_path(root, date), "w", encoding="utf-8") as f:
-            f.write(GOOD.split("## Open loops")[0] + "## Open loops\n\n" + loops + "\n")
-    week = os.path.join(root, "week.json")
-    with open(week, "w", encoding="utf-8") as f:
-        json.dump({"notes_repo_dir": root, "notes": [f"{d[:7]}/{d}.md" for d in days]}, f)
-    with contextlib.redirect_stdout(io.StringIO()) as out:
-        sy.cmd_buckets(type("A", (), {"week_json": week, "projects_dir": None}))
-    assert json.loads(out.getvalue())["open_loops"] == [
-        "- [x] Ship it. (Web App (beta), since Jun 8, done Jun 9)",
-        "- [ ] Call Sam. (Web App, since Jun 8; tried Jun 10)"]
 
 
 def main() -> int:

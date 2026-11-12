@@ -3,7 +3,10 @@
 
   python3 skills/setup/install.py                         wire capture (default)
   python3 skills/setup/install.py notes --repo <path> --create   configure daily notes
+  python3 skills/setup/install.py recall                  install the /pulse-recall skill
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -16,7 +19,7 @@ from urllib.request import Request, urlopen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-BACKEND = os.path.join(REPO, "convex-backend")
+BACKEND = os.path.join(REPO, "backend")
 PULSE_HOME = os.path.expanduser("~/.pulse")
 ENV_FILE = os.path.join(PULSE_HOME, ".env")
 CONFIG_FILE = os.path.join(PULSE_HOME, "config.yaml")
@@ -26,9 +29,6 @@ HOOKS_DIR = os.path.join(CLAUDE_DIR, "hooks")
 HOOK_DEST = os.path.join(HOOKS_DIR, "pulse-capture.py")
 SETTINGS = os.path.join(CLAUDE_DIR, "settings.json")
 if os.name == "nt":
-    # python3 can be the Microsoft Store alias stub, which `|| true` would hide.
-    # Claude Code runs hooks through Git Bash, so forward slashes and quotes work.
-    # The base interpreter, not a venv's, so deleting a venv doesn't break capture.
     _exe = getattr(sys, "_base_executable", None) or sys.executable
     _py, _hook = (p.replace("\\", "/") for p in (_exe, HOOK_DEST))
     HOOK_COMMAND = f'"{_py}" "{_hook}" || true'
@@ -46,7 +46,6 @@ def have(cmd: str) -> bool:
 
 
 def run(args: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[int, str, str]:
-    # shutil.which finds npm.cmd/npx.cmd shims on Windows; no-op on POSIX.
     resolved = shutil.which(args[0]) or args[0]
     try:
         p = subprocess.run([resolved, *args[1:]], cwd=cwd, capture_output=True, text=True,
@@ -58,18 +57,16 @@ def run(args: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[int
 
 def check_prereqs() -> None:
     print("1. Checking prerequisites...")
-    # On Windows the hook runs with this interpreter (sys.executable), not python3.
     py = [] if os.name == "nt" else [("python3", "this script")]
     for cmd, why in py + [("node", "the Convex CLI"),
-                     ("npx", "the Convex CLI"), ("git", "your notes repo"),
-                     ("curl", "the verification step")]:
+                     ("npx", "the Convex CLI"), ("git", "your notes repo")]:
         if not have(cmd):
             die(f"'{cmd}' not found (needed for {why}). Install it and re-run.")
-    print(f"   ok: {'python' if os.name == 'nt' else 'python3'}, node, npx, git, curl")
+    print(f"   ok: {'python' if os.name == 'nt' else 'python3'}, node, npx, git")
 
 
 def ensure_backend_deps() -> None:
-    print("2. Installing Convex backend deps (convex-backend/)...")
+    print("2. Installing Convex backend deps (backend/)...")
     code, _, err = run(["npm", "install"], cwd=BACKEND, timeout=300)
     if code != 0:
         die(f"npm install failed in {BACKEND}:\n{err}")
@@ -119,7 +116,7 @@ def write_env(url: str, token: str) -> None:
     os.makedirs(PULSE_HOME, exist_ok=True)
     content = f"CONVEX_URL={url}\nCONVEX_TOKEN={token}\n"
     if os.path.isfile(ENV_FILE) and open(ENV_FILE, encoding="utf-8").read() == content:
-        os.chmod(ENV_FILE, 0o600)  # re-tighten perms even when content is current
+        os.chmod(ENV_FILE, 0o600)
         print(f"4. Credentials already current at {ENV_FILE}")
         return
     with open(ENV_FILE, "w", encoding="utf-8", newline="\n") as f:
@@ -128,51 +125,53 @@ def write_env(url: str, token: str) -> None:
     print(f"4. Wrote credentials to {ENV_FILE}")
 
 
-def backup_settings() -> None:
-    if os.path.isfile(SETTINGS):
+def save_settings(settings: dict) -> str:
+    backed_up = os.path.isfile(SETTINGS)
+    if backed_up:
         shutil.copy(SETTINGS, SETTINGS + ".bak")
+    with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(settings, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    return " (backup at settings.json.bak)" if backed_up else ""
 
 
 def install_hook() -> None:
-    os.makedirs(HOOKS_DIR, exist_ok=True)
-    shutil.copy(os.path.join(HERE, "capture.py"), HOOK_DEST)
-    os.chmod(HOOK_DEST, 0o755)
-    print(f"5. Copied capture script to {HOOK_DEST}")
-
     settings = {}
     if os.path.isfile(SETTINGS):
         try:
             settings = json.load(open(SETTINGS, encoding="utf-8"))
         except Exception:
             die(f"{SETTINGS} is not valid JSON; fix or move it, then re-run.")
+    hooks = settings.setdefault("hooks", {}) if isinstance(settings, dict) else None
+    stop = hooks.setdefault("Stop", []) if isinstance(hooks, dict) else None
+    if not isinstance(stop, list):
+        die(f"{SETTINGS} has an unexpected shape (it must be an object whose `hooks` is an "
+            "object and `hooks.Stop` a list); fix or move it, then re-run.")
 
-    hooks = settings.setdefault("hooks", {})
-    stop = hooks.setdefault("Stop", [])
+    os.makedirs(HOOKS_DIR, exist_ok=True)
+    shutil.copy(os.path.join(HERE, "capture.py"), HOOK_DEST)
+    os.chmod(HOOK_DEST, 0o755)
+    print(f"5. Copied capture script to {HOOK_DEST}")
+
     ours = [h for group in stop if isinstance(group, dict)
-            for h in group.get("hooks", [])
-            if isinstance(h, dict) and "pulse-capture.py" in h.get("command", "")]
-    if os.name == "nt" and any(h.get("command") != HOOK_COMMAND for h in ours):
-        # Repair Windows hooks installed with the bare python3 command.
+            for h in (group.get("hooks") if isinstance(group.get("hooks"), list) else [])
+            if isinstance(h, dict) and "pulse-capture.py" in str(h.get("command", ""))]
+    if any(h.get("command") != HOOK_COMMAND for h in ours):
         for h in ours:
             h["command"] = HOOK_COMMAND
-        backup_settings()
-        with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(settings, f, indent=2)
-        print(f"   updated the Stop hook command in {SETTINGS} (backup at settings.json.bak)")
+        print(f"   updated the Stop hook command in {SETTINGS}{save_settings(settings)}")
     elif ours:
         print("   hook already present in settings.json (no change)")
     else:
         stop.append({"matcher": "", "hooks": [
             {"type": "command", "command": HOOK_COMMAND, "timeout": 30}]})
-        backup_settings()
-        with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(settings, f, indent=2)
-        print(f"   added the Stop hook to {SETTINGS} (backup at settings.json.bak)")
+        print(f"   added the Stop hook to {SETTINGS}{save_settings(settings)}")
 
 
 def verify(url: str, token: str) -> None:
     print("6. Verifying with a probe record...")
     payload = json.dumps({"message": "pulse install verification probe",
+                          "event_id": "pulse-install-verify",
                           "project": "pulse-install", "projectPath": "/",
                           "sessionId": "install-verify"}).encode()
     req = Request(url.rstrip("/") + "/ingest", data=payload, method="POST",
@@ -222,9 +221,21 @@ def cmd_notes(args) -> int:
     if not have("git"):
         die("'git' not found. Install it and re-run.")
     repo = os.path.abspath(os.path.expanduser(args.repo))
-    if args.create or not os.path.isdir(repo):
-        os.makedirs(repo, exist_ok=True)
-    if not os.path.isdir(os.path.join(repo, ".git")):
+    if os.path.exists(repo) and not os.path.isdir(repo):
+        die(f"{repo} is a file, not a folder.")
+    if args.timezone:
+        try:
+            from zoneinfo import available_timezones
+            known = available_timezones()
+        except Exception:
+            known = set()
+        if known and args.timezone not in known:
+            die(f"unknown timezone {args.timezone!r}. Use an IANA name such as Europe/London.")
+    if not os.path.isdir(repo):
+        if not args.create:
+            die(f"{repo} does not exist. Check the path, or add --create to make it.")
+        os.makedirs(repo)
+    if not os.path.exists(os.path.join(repo, ".git")):
         code, _, err = run(["git", "init", repo])
         if code != 0:
             die(f"git init failed at {repo}:\n{err}")
@@ -233,30 +244,51 @@ def cmd_notes(args) -> int:
     else:
         print(f"   using existing notes repo at {repo}")
 
-    tz = args.timezone or detect_timezone()
     if not os.path.isfile(CONFIG_EXAMPLE):
         die(f"missing {CONFIG_EXAMPLE}")
-    out = []
+    old = open(CONFIG_FILE, encoding="utf-8").read() if os.path.isfile(CONFIG_FILE) else None
+    lines = (old or "").splitlines()
+    key_of = lambda line: line.split(":", 1)[0].strip() if ":" in line and not line.startswith("#") else None
+    have_keys = {key_of(line) for line in lines}
+    wanted = {"notes_repo": f'notes_repo: "{repo}"'}
+    if args.timezone or "timezone" not in have_keys:
+        wanted["timezone"] = f"timezone: {args.timezone or detect_timezone()}"
+    lines = [wanted.get(key_of(line), line) for line in lines]
     for line in open(CONFIG_EXAMPLE, encoding="utf-8").read().splitlines():
-        if line.startswith("timezone:"):
-            out.append(f"timezone: {tz}")
-        elif line.startswith("notes_repo:"):
-            out.append(f"notes_repo: {repo}")
-        else:
-            out.append(line)
-    content = "\n".join(out) + "\n"
+        if key_of(line) and key_of(line) not in have_keys:
+            lines.append(wanted.get(key_of(line), line))
+    content = "\n".join(lines) + "\n"
 
     os.makedirs(PULSE_HOME, exist_ok=True)
-    if os.path.isfile(CONFIG_FILE):
-        if open(CONFIG_FILE, encoding="utf-8").read() == content:
-            print(f"   config already current at {CONFIG_FILE}")
-            print(repo)
-            return 0
+    labels = os.path.join(PULSE_HOME, "project-labels.yaml")
+    if not os.path.isfile(labels):
+        shutil.copy(os.path.join(REPO, "skills", "digest", "templates", "project-labels.yaml"), labels)
+        print(f"   wrote a starter label map at {labels}")
+    if old == content:
+        print(f"   config already current at {CONFIG_FILE}")
+        print(repo)
+        return 0
+    if old is not None:
         shutil.copy(CONFIG_FILE, CONFIG_FILE + ".bak")
     with open(CONFIG_FILE, "w", encoding="utf-8", newline="\n") as f:
         f.write(content)
-    print(f"   wrote {CONFIG_FILE} (notes_repo={repo}, timezone={tz})")
+    print(f"   wrote {CONFIG_FILE} (notes_repo={repo}); your other settings are kept")
     print(repo)
+    return 0
+
+
+def cmd_recall() -> int:
+    script = os.path.join(REPO, "skills", "recall", "recall.py").replace("\\", "/")
+    python = f'"{_py}"' if os.name == "nt" else "python3"
+    text = open(os.path.join(REPO, "skills", "recall", "SKILL.md"), encoding="utf-8").read()
+    text = text.replace("name: recall", "name: pulse-recall", 1).replace(
+        "python3 skills/recall/recall.py", f'{python} "{script}"')
+    dest = os.path.join(CLAUDE_DIR, "skills", "pulse-recall", "SKILL.md")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    print(f"   installed /pulse-recall at {dest}\n"
+          "   it runs the script in this clone, so re-run this if you move the repo")
     return 0
 
 
@@ -268,9 +300,12 @@ def main() -> int:
     n.add_argument("--repo", required=True)
     n.add_argument("--create", action="store_true")
     n.add_argument("--timezone", default=None)
+    sub.add_parser("recall")
     args = p.parse_args()
     if args.cmd == "notes":
         return cmd_notes(args)
+    if args.cmd == "recall":
+        return cmd_recall()
     return cmd_capture()
 
 

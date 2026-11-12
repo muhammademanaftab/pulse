@@ -16,6 +16,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        python: ["3.12"]
+        include:
+          - os: ubuntu-24.04
+            python: "3.9"
+          - os: windows-latest
+            python: "3.9"
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -26,9 +32,9 @@ jobs:
       PYTHONWARNINGS: error::EncodingWarning
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
 
       - name: python3 resolves to the setup-python interpreter
         run: python3 -c "import sys; print(sys.executable, sys.version)"
@@ -67,13 +73,25 @@ jobs:
           "
 
       - name: Compile all scripts
-        run: python3 -m py_compile skills/setup/*.py skills/digest/*.py skills/synth/*.py
+        run: python3 -m py_compile skills/*/*.py tests/*.py
 
       - name: Capture parser and redaction tests
-        run: python3 skills/setup/test_capture.py
+        run: python3 tests/test_capture.py
 
       - name: Daily note structure, open loops, label folding tests
-        run: python3 skills/digest/test_digest.py
+        run: python3 tests/test_digest.py
+
+      - name: Weekly synth parser tests
+        run: python3 tests/test_synth.py
+
+      - name: Project page tests
+        run: python3 tests/test_projects.py
+
+      - name: Recall search tests
+        run: python3 tests/test_recall.py
+
+      - name: Post writer tests
+        run: python3 tests/test_posts.py
 
       - name: Link-rendering rule (existence-based)
         run: |
@@ -131,7 +149,7 @@ jobs:
           set -e
           mkdir -p /tmp/w/Pulse/Weekly/2026-06 /tmp/w/Pulse/Daily/2026-06
           printf -- '---\ndate: "2026-06-08"\ntags: [pulse, daily]\n---\n\n# Mon, June 8, 2026\n' > /tmp/w/Pulse/Daily/2026-06/2026-06-08.md
-          printf -- '---\ntype: weekly\nweek_start: "2026-06-08"\nweek_end: "2026-06-14"\ntags: [pulse, weekly]\n---\n\n# Week of Jun 8 to Jun 14, 2026\n\nGood week.\n\n## What you worked on\n\n- **Web App** (2 days): shipped a faster home page\n\n## Sources\n\nDaily notes read: [[Pulse/Daily/2026-06/2026-06-08|Jun 8]]\n' > /tmp/w/Pulse/Weekly/2026-06/2026-06-14.md
+          printf -- '---\ntype: weekly\nweek_start: "2026-06-08"\nweek_end: "2026-06-14"\ntags: [pulse, weekly]\n---\n\n# Week of Jun 8 to Jun 14, 2026\n\nGood week.\n\n## What you worked on\n\n- **Web App** (2 days): shipped a faster home page\n\n## Sources\n\nDaily notes read: [[Pulse/Daily/2026-06/2026-06-08|Jun 8]]\n\n---\n\nPart of [[Pulse Weekly 2026-06|June 2026]]\n' > /tmp/w/Pulse/Weekly/2026-06/2026-06-14.md
           python3 skills/synth/synth.py week-links --vault /tmp/w --subfolder "Pulse/Weekly" --date 2026-06-14 --hub-prefix "Pulse Weekly" --index "Pulse Weekly Index.md"
           python3 skills/synth/synth.py week-links --vault /tmp/w --subfolder "Pulse/Weekly" --date 2026-06-14 --hub-prefix "Pulse Weekly" --index "Pulse Weekly Index.md"
           python3 skills/synth/synth.py lint /tmp/w/Pulse/Weekly/2026-06/2026-06-14.md

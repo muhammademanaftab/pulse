@@ -68,7 +68,8 @@ Bad:
 
 ## Quiet weeks
 
-If a week genuinely has little in it, still write the note. Headline: "Quiet
+If a week has daily notes but little in them, still write the note. (A week
+with no daily notes at all gets no weekly note.) Headline: "Quiet
 week." A short "What you worked on" is fine. The continuity is the point.
 
 ## Anti-patterns

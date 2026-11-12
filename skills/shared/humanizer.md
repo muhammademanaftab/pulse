@@ -22,9 +22,9 @@ allowed-tools:
 # Humanizer: Remove AI Writing Patterns
 
 > Vendored verbatim from the `humanizer` skill (github.com/blader/humanizer), MIT
-> licensed. Kept inside the repo so the digest can apply it in any context,
+> licensed. Kept inside the repo so the digest and the synth can apply it in any context,
 > including a cloud routine where `~/.claude/skills/` is not available. The digest
-> runs it as a readability pass over the daily note (see `../SKILL.md`, step 5b)
+> runs it as a readability pass over the daily note (see `skills/digest/SKILL.md`, step 5b)
 > under hard constraints: never drop or invent a file/count/ID, keep bullets terse,
 > keep the neutral technical voice. Re-copy from upstream to update.
 

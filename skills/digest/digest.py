@@ -6,101 +6,59 @@ Subcommands (run `digest.py <cmd> -h` for each):
   render-block  render one Work-log project heading + bullets (correct linking)
   month-links   wire the dated note into its month hub + folder index (idempotent)
   open-loops    list the previous note's open items to carry into this one
-  carry-forward after a backfill, copy its new open items into the newest note
+  carry-forward after a backfill, bring every later note's Open loops in line with it
   lint          gate: note layout, typed bullets, open loops carried, no em dash
   coverage      gate: every digest bucket has a block in the note
   check-links   gate: no dead [[links]] and no orphan notes
+  mark-processed  after the push is verified, mark the digested rows processed
 
 Stdlib only. No LLM (the writing step lives in skills/digest/SKILL.md). Config
 comes from ~/.pulse/config.yaml (env vars win); Convex creds from ~/.pulse/.env.
 The daily note is regenerate-and-overwrite, so a project links as [[Project]]
 only when its note exists in projects_dir, else plain **bold** (no dead links).
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import re
 import sys
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from urllib.request import Request, urlopen
 
-ENV_FILE = os.path.expanduser("~/.pulse/.env")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
+from common import (  # noqa: E402
+    BANNED_RE, DASH_RE, DATE_FILE_RE, LOOP_TAG_RE, TASK_RE, UNSAFE_LABEL_RE, cfg_get, get_tz, h2_body,
+    link_into_hubs, list_dated_notes, load_config, loop_text, notes_repo_dir, pulse_home,
+    read_note,
+    render_label, strip_code, strip_code_blocks, utf8_stdio)
+
 TRIVIAL_PROMPTS = {
     "hi", "hello", "hey", "yo", "thanks", "thank you", "ty", "ok", "okay", "k",
     "yes", "no", "yep", "yup", "nope", "sure", "cool", "nice", "great", "go",
     "go ahead", "continue", "next", "done", "good", "perfect",
 }
-MONTHS = ["January", "February", "March", "April", "May", "June", "July",
-          "August", "September", "October", "November", "December"]
-
-DASH_RE = re.compile(r"[—–]")
+MARK_BATCH = 500
 LINK_RE = re.compile(r"\[\[([^\]\|#]+)")
-FENCE_RE = re.compile(r"```.*?```", re.S)
-CODE_RE = re.compile(r"`[^`\n]*`")
 SKIP_DIRS = {".git", ".obsidian", "node_modules", "__pycache__", ".trash"}
 
 SECTIONS = ["## Summary", "## Work log", "## Open loops"]
 BLOCK_HEADING_RE = re.compile(
     r"^###\s+(?:\[\[(?P<link>[^\]#|]+)(?:[#|][^\]]*)?\]\]|\*\*(?P<bold>[^*]+)\*\*)\s*$")
-TASK_RE = re.compile(r"^- \[( |x|X)\] (.+)$")
-LOOP_TAG_RE = re.compile(
-    r"\s*\((?P<project>(?:[^()]|\([^()]*\))*?),\s*since (?P<since>[A-Z][a-z]{2} \d{1,2})[^()]*\)\s*$")
-MONTH_DIR_RE = re.compile(r"^\d{4}-\d{2}$")
 PREFIX_RE = re.compile(r"^- (\*\*)?(outcome|decided|bug|rule|learned|open|refs)(\*\*)?:", re.I)
 CLOSED_RE = re.compile(r",\s*(?:done [A-Z][a-z]{2} \d{1,2}|dropped [A-Z][a-z]{2} \d{1,2}:)")
-DATE_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
-BANNED_WORDS = ["non-trivial", "leveraging", "baked into", "kicked off", "blast radius",
-                "key finding", "non-negotiable", "iteratively", "front-of-mind",
-                "underweighted", "pushed through", "delve", "seamlessly"]
-BANNED_RE = re.compile(r"\b(?:" + "|".join(re.escape(w) for w in BANNED_WORDS) + r")\b", re.I)
-
-
-def strip_code(text: str) -> str:
-    return CODE_RE.sub("", FENCE_RE.sub("", text))
-
-
-def strip_code_blocks(text: str) -> str:
-    return FENCE_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
-
-
-# --- config + creds ---------------------------------------------------------
-
-def pulse_home() -> str:
-    return os.path.expanduser(os.environ.get("PULSE_HOME", "~/.pulse"))
-
-
-def read_config(path: str) -> dict:
-    cfg: dict = {}
-    if not os.path.isfile(path):
-        return cfg
-    try:
-        for line in open(path, encoding="utf-8"):
-            line = line.split("#", 1)[0].strip()
-            if not line or ":" not in line:
-                continue
-            k, v = line.split(":", 1)
-            k, v = k.strip(), v.strip().strip('"').strip("'")
-            if v:
-                cfg[k] = v
-    except Exception:
-        pass
-    return cfg
-
-
-def cfg_get(cfg: dict, key: str, env: str | None, default: str) -> str:
-    if env and os.environ.get(env):
-        return os.environ[env]
-    return cfg.get(key, default)
 
 
 def load_convex_env() -> tuple[str | None, str | None]:
     url, token = os.environ.get("CONVEX_URL"), os.environ.get("CONVEX_TOKEN")
     if url and token:
         return url, token
-    if os.path.isfile(ENV_FILE):
+    env_file = os.path.join(pulse_home(), ".env")
+    if os.path.isfile(env_file):
         try:
-            for line in open(ENV_FILE, encoding="utf-8"):
+            for line in open(env_file, encoding="utf-8"):
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
@@ -115,31 +73,16 @@ def load_convex_env() -> tuple[str | None, str | None]:
     return url, token
 
 
-def get_tz(cfg: dict):
-    name = cfg_get(cfg, "timezone", "PULSE_TZ", "UTC")
-    if name and name != "UTC":
-        try:
-            from zoneinfo import ZoneInfo
-            return ZoneInfo(name)
-        except Exception:
-            # Windows Python ships no tz database; without this the day window
-            # would silently shift to UTC.
-            print(f"warning: unknown timezone {name!r}, using UTC "
-                  "(on Windows: pip install tzdata)", file=sys.stderr)
-    return timezone.utc
+def convex_creds() -> tuple[str | None, str | None, str | None]:
+    """(url, token, error). error is set when the creds are missing or unsafe."""
+    url, token = load_convex_env()
+    if not url or not token:
+        return None, None, "no CONVEX_URL/CONVEX_TOKEN; run skills/setup/install.py"
+    if not url.startswith("https://"):
+        return None, None, ("CONVEX_URL must start with https:// (refusing to send "
+                            "the token over cleartext)")
+    return url, token, None
 
-
-# --- linking rule (existence-based) -----------------------------------------
-
-def render_label(label: str, projects_dir: str | None) -> str:
-    """Wikilink iff the project note exists, else bold. No dead links possible."""
-    if projects_dir and os.path.isfile(
-            os.path.join(os.path.expanduser(projects_dir), f"{label}.md")):
-        return f"[[{label}]]"
-    return f"**{label}**"
-
-
-# --- label map (optional) ---------------------------------------------------
 
 def _unq(s: str) -> str:
     return s[1:-1] if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'" else s
@@ -233,6 +176,11 @@ def is_noise_folder(event: dict, labels: dict) -> bool:
         e.get("regex") and rx_search(e["regex"], raw) for e in labels.get("noise_patterns", []))
 
 
+def clean_label(label: str) -> str:
+    """A label becomes a heading, a link and a file name, so drop what breaks those."""
+    return re.sub(r"\s+", " ", UNSAFE_LABEL_RE.sub(" ", label)).strip(" .") or "Misc"
+
+
 def resolve_labels(events: list[dict], labels: dict) -> list[str]:
     """A scratch-folder event takes a path_patterns hit on its full path, else the
     label of the nearest-in-time real event in its session, else the fallback."""
@@ -256,8 +204,6 @@ def resolve_labels(events: list[dict], labels: dict) -> list[str]:
     return out
 
 
-# --- fetch (subcommand) -----------------------------------------------------
-
 def resolve_date(arg: str | None, tz) -> str:
     now = datetime.now(tz)
     if not arg or arg == "yesterday":
@@ -271,6 +217,11 @@ def resolve_date(arg: str | None, tz) -> str:
 def is_noise(prompt: str) -> bool:
     s = (prompt or "").strip().lower().rstrip("!.?")
     return s == "" or s in TRIVIAL_PROMPTS
+
+
+def is_install_probe(event: dict) -> bool:
+    """The row skills/setup/install.py posts to verify the deployment."""
+    return event["session"] == "install-verify" and event["project"] == "pulse-install"
 
 
 def row_id(row: dict) -> str:
@@ -296,17 +247,17 @@ def defer_today(date: str, now: datetime, include_today: bool) -> bool:
 
 
 def cmd_fetch(args) -> int:
-    cfg = read_config(os.path.join(pulse_home(), "config.yaml"))
+    cfg = load_config()
     tz = get_tz(cfg)
-    date = resolve_date(args.date, tz)
-    url, token = load_convex_env()
-    if not url or not token:
-        print(json.dumps({"error": "no CONVEX_URL/CONVEX_TOKEN; run skills/setup/install.py",
-                          "date": date}), file=sys.stderr)
+    try:
+        date = resolve_date(args.date, tz)
+    except ValueError:
+        print(json.dumps({"error": f"--date must be YYYY-MM-DD, today or yesterday, "
+                                   f"got {args.date!r}"}), file=sys.stderr)
         return 2
-    if not url.startswith("https://"):
-        print(json.dumps({"error": "CONVEX_URL must start with https:// (refusing to send "
-                          "the token over cleartext)", "date": date}), file=sys.stderr)
+    url, token, error = convex_creds()
+    if error:
+        print(json.dumps({"error": error, "date": date}), file=sys.stderr)
         return 2
 
     start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=tz)
@@ -322,7 +273,7 @@ def cmd_fetch(args) -> int:
 
     labels = load_labels(os.path.expanduser(
         cfg_get(cfg, "project_labels", None, os.path.join(pulse_home(), "project-labels.yaml"))))
-    notes_repo = os.path.expanduser(cfg_get(cfg, "notes_repo", "NOTES_REPO", ""))
+    notes_repo = notes_repo_dir(cfg)
     vault_subfolder = cfg_get(cfg, "vault_subfolder", "PULSE_VAULT_SUBFOLDER", "Pulse/Daily")
     projects_subfolder = cfg_get(cfg, "projects_subfolder", "PULSE_PROJECTS_SUBFOLDER", "Pulse/Projects")
     hub_prefix = cfg_get(cfg, "hub_prefix", "PULSE_HUB_PREFIX", "Pulse")
@@ -332,11 +283,12 @@ def cmd_fetch(args) -> int:
     if deferred:
         rows = []
     new_ids = [row_id(r) for r in rows if not r.get("processed") and row_id(r)]
-    events = [e for e in (normalize(r) for r in rows) if not is_noise(e["prompt"])]
+    events = [e for e in (normalize(r) for r in rows)
+              if not is_noise(e["prompt"]) and not is_install_probe(e)]
     events.sort(key=lambda e: (e.get("ts", 0), e.get("timestamp", "")))
     grouped: dict[str, list] = {}
     for e, label in zip(events, resolve_labels(events, labels)):
-        grouped.setdefault(label, []).append(
+        grouped.setdefault(clean_label(label), []).append(
             {"ts": e["ts"], "timestamp": e["timestamp"], "prompt": e["prompt"],
              "response": e["response"], "id": e["id"]})
 
@@ -355,15 +307,39 @@ def cmd_fetch(args) -> int:
         "deferred_today": deferred,
         "project_count": len(grouped),
         "buckets": [{"project": p, "events": evs} for p, evs in grouped.items()],
-        # The note is built from the whole day; only rows not yet processed get
-        # marked, including noise, so trivial rows do not pile up forever.
         "row_ids": new_ids,
     }
     print(json.dumps(out, ensure_ascii=False))
     return 0
 
 
-# --- render-block (subcommand) ----------------------------------------------
+def cmd_mark_processed(args) -> int:
+    raw = open(args.digest_json, encoding="utf-8").read() if args.digest_json else sys.stdin.read()
+    ids = json.loads(raw).get("row_ids", [])
+    if not ids:
+        print("OK nothing to mark")
+        return 0
+    url, token, error = convex_creds()
+    if error:
+        print(f"FAIL {error}", file=sys.stderr)
+        return 2
+    marked = 0
+    for i in range(0, len(ids), MARK_BATCH):
+        req = Request(f"{url.rstrip('/')}/mark-processed", method="POST",
+                      data=json.dumps({"ids": ids[i:i + MARK_BATCH]}).encode("utf-8"),
+                      headers={"Content-Type": "application/json",
+                               "Authorization": f"Bearer {token}"})
+        try:
+            with urlopen(req, timeout=30) as resp:
+                resp.read()
+        except Exception as e:
+            print(f"FAIL mark-processed after {marked} of {len(ids)} row(s): {e}. "
+                  "Safe to rerun.", file=sys.stderr)
+            return 1
+        marked += len(ids[i:i + MARK_BATCH])
+    print(f"OK marked {marked} row(s) processed")
+    return 0
+
 
 def cmd_render_block(args) -> int:
     bullets = (open(args.bullets_file, encoding="utf-8").read() if args.bullets_file
@@ -376,79 +352,8 @@ def cmd_render_block(args) -> int:
     return 0
 
 
-# --- month-links (subcommand) -----------------------------------------------
-
-def _upsert_list(text: str, heading: str, new_line: str, reverse: bool = False):
-    if new_line in text:
-        return text, False
-    lines = text.split("\n")
-    try:
-        h = lines.index(heading)
-    except ValueError:
-        return text.rstrip("\n") + f"\n\n{heading}\n\n{new_line}\n", True
-    i = h + 1
-    while i < len(lines) and lines[i].strip() == "":
-        i += 1
-    start = i
-    while i < len(lines) and lines[i].startswith("- "):
-        i += 1
-    lines[start:i] = sorted(set(lines[start:i] + [new_line]), reverse=reverse)
-    out = "\n".join(lines)
-    return (out if out.endswith("\n") else out + "\n"), True
-
-
 def cmd_month_links(args) -> int:
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", args.date):
-        print(f"ERROR: --date must be YYYY-MM-DD, got {args.date!r}", file=sys.stderr)
-        return 1
-    vault = os.path.abspath(os.path.expanduser(args.vault))
-    ym = args.date[:7]
-    y, m = ym.split("-")
-    mname = f"{MONTHS[int(m) - 1]} {y}"
-    sub = args.subfolder.strip("/")
-    hub_name = f"{args.hub_prefix} {ym}"
-    hub_path = os.path.join(vault, sub, ym, f"{hub_name}.md")
-    index_path = os.path.join(vault, sub, args.index)
-    index_stem = os.path.splitext(args.index)[0]
-
-    if not os.path.isfile(hub_path):
-        os.makedirs(os.path.dirname(hub_path), exist_ok=True)
-        open(hub_path, "w", encoding="utf-8", newline="\n").write(
-            f"---\ntype: month-hub\nmonth: \"{ym}\"\ntags: [pulse, hub]\n---\n\n"
-            f"# {args.hub_prefix} notes, {mname}\n\nPart of [[{index_stem}]].\n\n## Days\n")
-        print(f"CREATED hub {hub_path}")
-    d = datetime.strptime(args.date, "%Y-%m-%d")
-    day_link = f"- [[{sub}/{ym}/{args.date}|{d.strftime('%b')} {d.day}]]"
-    text, changed = _upsert_list(open(hub_path, encoding="utf-8").read(), "## Days", day_link)
-    if changed:
-        open(hub_path, "w", encoding="utf-8", newline="\n").write(text)
-        print(f"LINKED {args.date} in {os.path.basename(hub_path)}")
-
-    if not os.path.isfile(index_path):
-        os.makedirs(os.path.dirname(index_path), exist_ok=True)
-        open(index_path, "w", encoding="utf-8", newline="\n").write(
-            f"---\ntype: index\ntags: [pulse, index]\n---\n\n# {args.hub_prefix} notes\n\n"
-            f"Auto-maintained index of monthly note hubs.\n\n## Months\n")
-        print(f"CREATED index {index_path}")
-    text, changed = _upsert_list(open(index_path, encoding="utf-8").read(),
-                                 "## Months", f"- [[{hub_name}|{mname}]]", reverse=True)
-    if changed:
-        open(index_path, "w", encoding="utf-8", newline="\n").write(text)
-        print(f"LINKED {hub_name} in {os.path.basename(index_path)}")
-    print("OK")
-    return 0
-
-
-# --- note structure (shared by open-loops and lint) -------------------------
-
-def h2_body(text: str, heading: str) -> str | None:
-    m = re.search(rf"^{re.escape(heading)}[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-    return m.group(1) if m else None
-
-
-def loop_text(line: str) -> str:
-    m = TASK_RE.match(line)
-    return LOOP_TAG_RE.sub("", m.group(2) if m else line).strip()
+    return link_into_hubs(args, "daily")
 
 
 def loop_items(body: str) -> dict[str, str]:
@@ -467,25 +372,13 @@ def note_date(path: str) -> str | None:
 
 def dated_notes(path: str) -> list[str]:
     """Every dated note in the YYYY-MM folders next to this note's month, by date."""
-    root = os.path.dirname(os.path.dirname(os.path.abspath(path)))
-    if not os.path.isdir(root):
-        return []
-    notes = []
-    for month in os.listdir(root):
-        mdir = os.path.join(root, month)
-        if MONTH_DIR_RE.match(month) and os.path.isdir(mdir):
-            notes += [os.path.join(mdir, f) for f in os.listdir(mdir) if DATE_FILE_RE.match(f)]
-    return sorted(notes, key=os.path.basename)
+    return list_dated_notes(os.path.dirname(os.path.dirname(os.path.abspath(path))))
 
 
 def previous_note(path: str) -> str | None:
     date = note_date(path)
     earlier = [n for n in dated_notes(path) if note_date(n) < date] if date else []
     return earlier[-1] if earlier else None
-
-
-def read_note(path: str) -> str:
-    return open(path, encoding="utf-8", errors="replace").read()
 
 
 def loops_of(path: str) -> str:
@@ -505,8 +398,6 @@ def since_age(since: str, date: str) -> int | None:
             return (nd - d).days
     return None
 
-
-# --- open-loops (subcommand) ------------------------------------------------
 
 def cmd_open_loops(args) -> int:
     date = note_date(args.note)
@@ -531,17 +422,22 @@ def cmd_open_loops(args) -> int:
                     "since": tag.group("since") if tag else None,
                     "age_days": since_age(tag.group("since"), date) if tag else None})
     if os.path.isfile(args.note):
-        loops = h2_body(read_note(args.note), "## Open loops") or ""
+        loops = loops_of(args.note)
         out["closed_in_existing"] = [ln for ln in loops.splitlines()
                                      if (t := TASK_RE.match(ln)) and t.group(1) != " "]
     print(json.dumps(out, ensure_ascii=False))
     return 0
 
 
-# --- carry-forward (subcommand) --------------------------------------------
+def loop_key(line: str) -> tuple[str, str | None]:
+    tag = LOOP_TAG_RE.search(line)
+    return loop_text(line), tag.group("since") if tag else None
 
-def insert_loops(path: str, new: list[str]) -> bool:
-    """Append items to a note's Open loops (outside code fences), keeping its line endings."""
+
+def edit_loops(path: str, add: list[str], closed: set) -> int:
+    """Append `add` to a note's Open loops and drop its open items whose
+    (text, since) is in `closed`. Skips code fences, keeps line endings.
+    Returns how many items were dropped, or -1 if the note has no Open loops."""
     raw = open(path, encoding="utf-8", errors="replace", newline="").read()
     nl = "\r\n" if "\r\n" in raw else "\n"
     lines, fenced, start = raw.splitlines(), False, None
@@ -552,13 +448,17 @@ def insert_loops(path: str, new: list[str]) -> bool:
             start = i
             break
     if start is None:
-        return False
+        return -1
     end = next((j for j in range(start + 1, len(lines)) if lines[j].startswith("## ")), len(lines))
-    kept = [ln for ln in lines[start + 1:end] if ln.strip() and ln.strip() != "- None."]
-    lines[start + 1:end] = [""] + kept + new + ([""] if end < len(lines) else [])
+    body = [ln for ln in lines[start + 1:end] if ln.strip() and ln.strip() != "- None."]
+    kept = [ln for ln in body
+            if not ((t := TASK_RE.match(ln)) and t.group(1) == " " and loop_key(ln) in closed)]
+    if not add and len(kept) == len(body):
+        return 0
+    lines[start + 1:end] = [""] + (kept + add or ["- None."]) + ([""] if end < len(lines) else [])
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(nl.join(lines) + nl)
-    return True
+    return len(body) - len(kept)
 
 
 def cmd_carry_forward(args) -> int:
@@ -567,22 +467,24 @@ def cmd_carry_forward(args) -> int:
         print(f"ERROR: --note must be an existing dated note, got {args.note!r}", file=sys.stderr)
         return 1
     later = [n for n in dated_notes(args.note) if note_date(n) > date]
-    pending = [ln for ln in loops_of(args.note).splitlines()
-               if (t := TASK_RE.match(ln)) and t.group(1) == " "]
+    tasks = [ln for ln in loops_of(args.note).splitlines() if TASK_RE.match(ln)]
+    pending = [ln for ln in tasks if TASK_RE.match(ln).group(1) == " "]
+    closed = {loop_key(ln) for ln in tasks if TASK_RE.match(ln).group(1) != " "}
     for note in later:
         if h2_body(strip_code_blocks(read_note(note)), "## Open loops") is None:
             print(f"OK {os.path.basename(note)} predates Open loops, skipped")
             continue
         present = loop_items(loops_of(note))
         pending = [ln for ln in pending if loop_text(ln) not in present]
-        if pending and insert_loops(note, pending):
+        dropped = edit_loops(note, pending, closed)
+        if pending:
             print(f"CARRIED {len(pending)} item(s) into {note}")
+        if dropped > 0:
+            print(f"CLOSED {dropped} item(s) in {note}")
     if not later:
         print("OK no later note")
     return 0
 
-
-# --- lint (subcommand) ------------------------------------------------------
 
 def lint_structure(text: str, path: str, closed: list[str] = ()) -> list[str]:
     """See skills/digest/references/note-structure.md."""
@@ -698,7 +600,7 @@ def cmd_lint(args) -> int:
                 closed = (json.load(open(args.loops_json, encoding="utf-8"))["closed_in_existing"]
                           if args.loops_json else [])
                 problems += lint_structure(raw, note, closed)
-            for i, line in enumerate(raw.splitlines(), 1):
+            for i, line in enumerate(strip_code_blocks(raw).splitlines(), 1):
                 body = strip_code(line)
                 if DASH_RE.search(body):
                     problems.append(f"line {i}: em/en dash in body")
@@ -713,8 +615,6 @@ def cmd_lint(args) -> int:
             print(f"OK {note}")
     return 1 if failed else 0
 
-
-# --- coverage (subcommand) --------------------------------------------------
 
 def cmd_coverage(args) -> int:
     raw = open(args.digest_json, encoding="utf-8").read() if args.digest_json else sys.stdin.read()
@@ -735,18 +635,18 @@ def cmd_coverage(args) -> int:
     return 0
 
 
-# --- check-links (subcommand) -----------------------------------------------
-
 def cmd_check_links(args) -> int:
     vault = os.path.abspath(os.path.expanduser(args.vault))
     scan_root = os.path.join(vault, args.subfolder) if args.subfolder else vault
+    prefix = os.path.relpath(scan_root, vault).replace("\\", "/") + "/" if args.subfolder else ""
     files, stem_to_rel = [], {}
-    for dirpath, dirnames, filenames in os.walk(scan_root):
+    for dirpath, dirnames, filenames in os.walk(vault):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in filenames:
             if fn.endswith(".md"):
                 rel = os.path.relpath(os.path.join(dirpath, fn), vault).replace("\\", "/")
-                files.append(rel)
+                if rel.startswith(prefix):
+                    files.append(rel)
                 stem_to_rel.setdefault(os.path.splitext(fn)[0], rel)
 
     def resolve(target: str):
@@ -782,12 +682,8 @@ def cmd_check_links(args) -> int:
     return 0
 
 
-# --- dispatch ---------------------------------------------------------------
-
 def main() -> int:
-    # Piped stdio uses the console codepage on Windows; JSON and notes are UTF-8.
-    for stream in (sys.stdin, sys.stdout):
-        stream.reconfigure(encoding="utf-8")
+    utf8_stdio()
     p = argparse.ArgumentParser(description="Pulse digester (L3).")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -815,7 +711,7 @@ def main() -> int:
     ol.add_argument("--note", required=True, help="the note being written (its note_path)")
     ol.set_defaults(fn=cmd_open_loops)
 
-    cf = sub.add_parser("carry-forward", help="after a backfill: copy its new open items into the newest note")
+    cf = sub.add_parser("carry-forward", help="after a backfill: add its new open items to later notes, drop the ones it closed")
     cf.add_argument("--note", required=True)
     cf.set_defaults(fn=cmd_carry_forward)
 
@@ -837,6 +733,10 @@ def main() -> int:
     cl.add_argument("--vault", required=True)
     cl.add_argument("--subfolder", default=None)
     cl.set_defaults(fn=cmd_check_links)
+
+    mp = sub.add_parser("mark-processed", help="mark the digested rows processed (after the push)")
+    mp.add_argument("--digest-json", default=None, help="the fetch output (reads its row_ids)")
+    mp.set_defaults(fn=cmd_mark_processed)
 
     args = p.parse_args()
     return args.fn(args)
