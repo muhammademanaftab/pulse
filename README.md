@@ -175,6 +175,13 @@ Setup writes `~/.pulse/config.yaml` for you from [`config.example.yaml`](config.
 | `hub_prefix` | name prefix for the month hubs (default `Pulse`) |
 | `index_name` | file name of the daily index (default `Pulse Index.md`) |
 
+Less common keys, each with a sensible default: `weekly_hub_prefix`, `weekly_index`,
+`posts_hub_prefix`, `posts_index`, and `project_labels` (the path of the label map).
+
+Setup also writes `~/.pulse/project-labels.yaml`. Use it to give a folder a nicer
+project name in your notes (`my-app-backend: My App`), and to list scratch folders
+(`tmp`, `scratch...`) whose work should count toward the real project of that session.
+
 ## Status
 
 Pulse is early (0.x). Capture, the daily note, project pages, the weekly recap, recall and post drafts work today. A devlog and a brag document are planned, not built yet. Expect rough edges and breaking changes until 1.0.

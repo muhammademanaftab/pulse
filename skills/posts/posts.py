@@ -36,6 +36,7 @@ HASHTAG_RE = re.compile(r"(?<![\w/])#[^\W\d_]\w*")
 URL_RE = re.compile(r"https?://\S+")
 HYPE_RE = re.compile(
     r"excited to share|thrilled to announce|game[- ]changer|revolutionary|supercharge|\b10x\b"
+    r"|\bunlock|\binsane\b|here's what i learned|let me tell you"
     r"|comment below|\bthoughts\?|\bagree\?", re.I)
 TWEET_RE = re.compile(r"^(\d+)/ \S")
 

@@ -14,7 +14,7 @@ daily notes are the source of truth and are never edited here.
 
 This skill reads the daily notes, writes the weekly note, wires it into the graph,
 runs the gates, and has a reviewer subagent verify it before anything is pushed.
-The caller (the synth routine, or a manual run) is what commits and pushes.
+Then it commits and pushes (step 10).
 
 The synthesizer never touches Convex. It only reads daily notes and writes the
 weekly note, hub, and index. There is nothing to mark processed.

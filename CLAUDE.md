@@ -46,8 +46,8 @@ digest SKILL" (notes), matching how Eman actually runs it.
   `install.py recall` installs it to `~/.claude/skills/pulse-recall/`.
 - **Routines:** `routines/` holds claude.ai cloud routines (`digest.md` nightly,
   `synth.md` and `posts.md` weekly) that clone the repo at a pinned tag and run with the machine off.
-- **Shared:** `skills/shared/common.py` holds what digest and synth both need (config,
-  timezone, the linking rule, hub + index wiring); `skills/shared/humanizer.md` is the
+- **Shared:** `skills/shared/common.py` holds what the skill scripts share (config,
+  timezone, the linking rule, reading daily notes, hub + index wiring); `skills/shared/humanizer.md` is the
   one tone guide. A new skill is one folder under `skills/` that imports `common`.
 - **Tests:** `tests/test_*.py`, plain asserts, run each file directly with `python3`.
 - Scripts are stdlib only and must run on Python 3.9 (the macOS system `python3`).
@@ -65,7 +65,8 @@ its note is confirmed pushed.
   gates, and reviewer subagent. Public repo is live. CI compiles the scripts and
   exercises the linking rule, gates, and the synth parser.
 - **Done since:** project pages, recall, and the post writer (v0.3.0).
-- **Not built yet:** skills tracking, semantic memory, the safety/redaction firewall,
+- **Not built yet:** skills tracking, semantic memory, redaction beyond the pattern
+  list in `capture.py` (nothing reviews a note for private details before it is pushed),
   and the other output heads (devlog/standup/bragdoc).
 - **Biggest unknown:** claude.ai-sandbox git-push auth, proven on the first real
   routine run.

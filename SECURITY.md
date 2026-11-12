@@ -48,7 +48,7 @@ push access to your notes repo. They push only to that repo: the post writer mak
 drafts for you to review and has no way to publish them. Two guards apply:
 
 - Captured content is treated as untrusted data, never as instructions (see the
-  guard note at the top of each `SKILL.md`).
+  guard note at the top of each skill's `SKILL.md`).
 - The routines clone the pulse repo at a pinned release tag, so an unattended agent
   only runs reviewed, tagged code.
 

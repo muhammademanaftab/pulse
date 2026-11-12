@@ -15,7 +15,6 @@ export const insert = internalMutation({
     model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // A double-fired Stop hook can send the same turn twice; dedup on eventId.
     const eventId = args.eventId;
     if (eventId) {
       const existing = await ctx.db

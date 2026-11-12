@@ -29,9 +29,6 @@ HOOKS_DIR = os.path.join(CLAUDE_DIR, "hooks")
 HOOK_DEST = os.path.join(HOOKS_DIR, "pulse-capture.py")
 SETTINGS = os.path.join(CLAUDE_DIR, "settings.json")
 if os.name == "nt":
-    # python3 can be the Microsoft Store alias stub, which `|| true` would hide.
-    # Claude Code runs hooks through Git Bash, so forward slashes and quotes work.
-    # The base interpreter, not a venv's, so deleting a venv doesn't break capture.
     _exe = getattr(sys, "_base_executable", None) or sys.executable
     _py, _hook = (p.replace("\\", "/") for p in (_exe, HOOK_DEST))
     HOOK_COMMAND = f'"{_py}" "{_hook}" || true'
@@ -49,7 +46,6 @@ def have(cmd: str) -> bool:
 
 
 def run(args: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[int, str, str]:
-    # shutil.which finds npm.cmd/npx.cmd shims on Windows; no-op on POSIX.
     resolved = shutil.which(args[0]) or args[0]
     try:
         p = subprocess.run([resolved, *args[1:]], cwd=cwd, capture_output=True, text=True,
@@ -61,7 +57,6 @@ def run(args: list[str], cwd: str | None = None, timeout: int = 60) -> tuple[int
 
 def check_prereqs() -> None:
     print("1. Checking prerequisites...")
-    # On Windows the hook runs with this interpreter (sys.executable), not python3.
     py = [] if os.name == "nt" else [("python3", "this script")]
     for cmd, why in py + [("node", "the Convex CLI"),
                      ("npx", "the Convex CLI"), ("git", "your notes repo")]:
@@ -121,7 +116,7 @@ def write_env(url: str, token: str) -> None:
     os.makedirs(PULSE_HOME, exist_ok=True)
     content = f"CONVEX_URL={url}\nCONVEX_TOKEN={token}\n"
     if os.path.isfile(ENV_FILE) and open(ENV_FILE, encoding="utf-8").read() == content:
-        os.chmod(ENV_FILE, 0o600)  # re-tighten perms even when content is current
+        os.chmod(ENV_FILE, 0o600)
         print(f"4. Credentials already current at {ENV_FILE}")
         return
     with open(ENV_FILE, "w", encoding="utf-8", newline="\n") as f:
@@ -265,6 +260,10 @@ def cmd_notes(args) -> int:
     content = "\n".join(lines) + "\n"
 
     os.makedirs(PULSE_HOME, exist_ok=True)
+    labels = os.path.join(PULSE_HOME, "project-labels.yaml")
+    if not os.path.isfile(labels):
+        shutil.copy(os.path.join(REPO, "skills", "digest", "templates", "project-labels.yaml"), labels)
+        print(f"   wrote a starter label map at {labels}")
     if old == content:
         print(f"   config already current at {CONFIG_FILE}")
         print(repo)

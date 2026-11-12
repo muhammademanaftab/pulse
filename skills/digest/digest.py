@@ -6,7 +6,7 @@ Subcommands (run `digest.py <cmd> -h` for each):
   render-block  render one Work-log project heading + bullets (correct linking)
   month-links   wire the dated note into its month hub + folder index (idempotent)
   open-loops    list the previous note's open items to carry into this one
-  carry-forward after a backfill, copy its new open items into the newest note
+  carry-forward after a backfill, bring every later note's Open loops in line with it
   lint          gate: note layout, typed bullets, open loops carried, no em dash
   coverage      gate: every digest bucket has a block in the note
   check-links   gate: no dead [[links]] and no orphan notes
@@ -40,7 +40,7 @@ TRIVIAL_PROMPTS = {
     "yes", "no", "yep", "yup", "nope", "sure", "cool", "nice", "great", "go",
     "go ahead", "continue", "next", "done", "good", "perfect",
 }
-MARK_BATCH = 500  # the backend rejects more ids per call
+MARK_BATCH = 500
 LINK_RE = re.compile(r"\[\[([^\]\|#]+)")
 SKIP_DIRS = {".git", ".obsidian", "node_modules", "__pycache__", ".trash"}
 
@@ -50,8 +50,6 @@ BLOCK_HEADING_RE = re.compile(
 PREFIX_RE = re.compile(r"^- (\*\*)?(outcome|decided|bug|rule|learned|open|refs)(\*\*)?:", re.I)
 CLOSED_RE = re.compile(r",\s*(?:done [A-Z][a-z]{2} \d{1,2}|dropped [A-Z][a-z]{2} \d{1,2}:)")
 
-
-# --- creds ------------------------------------------------------------------
 
 def load_convex_env() -> tuple[str | None, str | None]:
     url, token = os.environ.get("CONVEX_URL"), os.environ.get("CONVEX_TOKEN")
@@ -85,8 +83,6 @@ def convex_creds() -> tuple[str | None, str | None, str | None]:
                             "the token over cleartext)")
     return url, token, None
 
-
-# --- label map (optional) ---------------------------------------------------
 
 def _unq(s: str) -> str:
     return s[1:-1] if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'" else s
@@ -208,8 +204,6 @@ def resolve_labels(events: list[dict], labels: dict) -> list[str]:
     return out
 
 
-# --- fetch (subcommand) -----------------------------------------------------
-
 def resolve_date(arg: str | None, tz) -> str:
     now = datetime.now(tz)
     if not arg or arg == "yesterday":
@@ -313,15 +307,11 @@ def cmd_fetch(args) -> int:
         "deferred_today": deferred,
         "project_count": len(grouped),
         "buckets": [{"project": p, "events": evs} for p, evs in grouped.items()],
-        # The note is built from the whole day; only rows not yet processed get
-        # marked, including noise, so trivial rows do not pile up forever.
         "row_ids": new_ids,
     }
     print(json.dumps(out, ensure_ascii=False))
     return 0
 
-
-# --- mark-processed (subcommand) --------------------------------------------
 
 def cmd_mark_processed(args) -> int:
     raw = open(args.digest_json, encoding="utf-8").read() if args.digest_json else sys.stdin.read()
@@ -351,8 +341,6 @@ def cmd_mark_processed(args) -> int:
     return 0
 
 
-# --- render-block (subcommand) ----------------------------------------------
-
 def cmd_render_block(args) -> int:
     bullets = (open(args.bullets_file, encoding="utf-8").read() if args.bullets_file
                else sys.stdin.read()).strip("\n")
@@ -364,13 +352,9 @@ def cmd_render_block(args) -> int:
     return 0
 
 
-# --- month-links (subcommand) -----------------------------------------------
-
 def cmd_month_links(args) -> int:
     return link_into_hubs(args, "daily")
 
-
-# --- note structure (shared by open-loops and lint) -------------------------
 
 def loop_items(body: str) -> dict[str, str]:
     return {loop_text(ln): TASK_RE.match(ln).group(1).lower()
@@ -415,8 +399,6 @@ def since_age(since: str, date: str) -> int | None:
     return None
 
 
-# --- open-loops (subcommand) ------------------------------------------------
-
 def cmd_open_loops(args) -> int:
     date = note_date(args.note)
     if not date:
@@ -446,8 +428,6 @@ def cmd_open_loops(args) -> int:
     print(json.dumps(out, ensure_ascii=False))
     return 0
 
-
-# --- carry-forward (subcommand) --------------------------------------------
 
 def loop_key(line: str) -> tuple[str, str | None]:
     tag = LOOP_TAG_RE.search(line)
@@ -505,8 +485,6 @@ def cmd_carry_forward(args) -> int:
         print("OK no later note")
     return 0
 
-
-# --- lint (subcommand) ------------------------------------------------------
 
 def lint_structure(text: str, path: str, closed: list[str] = ()) -> list[str]:
     """See skills/digest/references/note-structure.md."""
@@ -638,8 +616,6 @@ def cmd_lint(args) -> int:
     return 1 if failed else 0
 
 
-# --- coverage (subcommand) --------------------------------------------------
-
 def cmd_coverage(args) -> int:
     raw = open(args.digest_json, encoding="utf-8").read() if args.digest_json else sys.stdin.read()
     buckets = json.loads(raw).get("buckets", [])
@@ -658,8 +634,6 @@ def cmd_coverage(args) -> int:
     print(f"OK coverage: {len(buckets)} bucket(s) present in {args.note}")
     return 0
 
-
-# --- check-links (subcommand) -----------------------------------------------
 
 def cmd_check_links(args) -> int:
     vault = os.path.abspath(os.path.expanduser(args.vault))
@@ -708,8 +682,6 @@ def cmd_check_links(args) -> int:
     return 0
 
 
-# --- dispatch ---------------------------------------------------------------
-
 def main() -> int:
     utf8_stdio()
     p = argparse.ArgumentParser(description="Pulse digester (L3).")
@@ -739,7 +711,7 @@ def main() -> int:
     ol.add_argument("--note", required=True, help="the note being written (its note_path)")
     ol.set_defaults(fn=cmd_open_loops)
 
-    cf = sub.add_parser("carry-forward", help="after a backfill: copy its new open items into the newest note")
+    cf = sub.add_parser("carry-forward", help="after a backfill: add its new open items to later notes, drop the ones it closed")
     cf.add_argument("--note", required=True)
     cf.set_defaults(fn=cmd_carry_forward)
 

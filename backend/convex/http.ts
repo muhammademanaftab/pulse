@@ -4,8 +4,6 @@ import { internal } from "./_generated/api";
 
 const http = httpRouter();
 
-// Read endpoints use .collect(); cap the window so a wide range cannot blow
-// past Convex's read limits. The digest queries a single day.
 const MAX_RANGE_MS = 35 * 24 * 60 * 60 * 1000;
 
 function unauthorized(): Response {
@@ -15,7 +13,6 @@ function unauthorized(): Response {
   });
 }
 
-// Constant-time comparison so response timing leaks nothing about the token.
 function timingSafeEqual(a: string, b: string): boolean {
   const enc = new TextEncoder();
   const ab = enc.encode(a);
@@ -61,7 +58,6 @@ http.route({
       });
     }
 
-    // Convex caps documents at 1MB of bytes; fail loudly instead of at the insert.
     const responseText = typeof body.response === "string" ? body.response : "";
     if (new TextEncoder().encode(message + responseText).length > 900_000) {
       return new Response(JSON.stringify({ error: "payload too large" }), {

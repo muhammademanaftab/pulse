@@ -13,8 +13,8 @@ from the event log, so this regenerates and overwrites it each run. The raw rows
 are the source of truth and are never edited here.
 
 This skill writes the note, runs the gates, and has a reviewer subagent verify it
-before anything is pushed. It reports the row ids back; the caller (the digest
-routine, or a manual run) is what commits, pushes, and marks the rows processed.
+before anything is pushed. Then it commits, pushes, and marks the rows processed
+(step 8).
 **Never mark rows processed until the note is confirmed pushed.**
 
 Run the commands below from the repo root (the digest routine clones the repo and
@@ -35,7 +35,8 @@ SKILL file.
 
 2. **Get the prepared buckets** (fetches the whole day's rows from Convex via
    `~/.pulse/.env`, applies the optional label map, buckets by project,
-   drops trivial noise, folds scratch folders into the session's real project):
+   drops trivial noise, and, if `~/.pulse/project-labels.yaml` has
+   `noise_patterns`, folds scratch folders into the session's real project):
 
    ```bash
    python3 skills/digest/digest.py fetch --date <date> > /tmp/pulse-digest.json

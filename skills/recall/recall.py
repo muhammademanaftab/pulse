@@ -66,10 +66,6 @@ def tokens(text: str) -> list[str]:
     return [w for w in seen if len(w) > 1 and w not in STOPWORDS]
 
 
-def terms(text: str) -> list[str]:
-    return tokens(text)
-
-
 def pieces(token: str) -> list[str]:
     return [p for p in SPLIT_RE.split(token) if len(p) > 1 and p not in STOPWORDS]
 
@@ -154,7 +150,7 @@ def cmd_search(args) -> int:
     if not os.path.isdir(daily_dir):
         return fail(f"no daily notes folder at {daily_dir}; check notes_repo and "
                     "vault_subfolder in ~/.pulse/config.yaml")
-    query = terms(" ".join(args.query))
+    query = tokens(" ".join(args.query))
     project = plain(args.project) if args.project else None
     filtered = bool(args.type or project or args.since or args.until)
     unusable = bool(args.query) and not query and not filtered

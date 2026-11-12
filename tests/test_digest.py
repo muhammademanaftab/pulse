@@ -94,8 +94,6 @@ def assert_fails(text: str, needle: str, **kw):
     assert any(needle in p for p in problems), (needle, problems)
 
 
-# --- lint: layout and typed bullets -----------------------------------------
-
 def test_good_note_passes():
     assert lint(GOOD) == [], lint(GOOD)
 
@@ -245,8 +243,6 @@ def test_allow_legacy_skips_structure_only_for_old_notes():
 def test_banned_phrase_inside_code_is_fine():
     assert not dg.BANNED_RE.search(dg.strip_code("Renamed `non-trivial-check.sh`"))
 
-
-# --- open loops carry forward -------------------------------------------------
 
 PREV = GOOD.replace('date: "2026-06-02"', 'date: "2026-06-01"').replace(
     "- [ ] Add the preview button to mobile. (Web App, since Jun 2)",
@@ -569,8 +565,6 @@ def test_mark_processed_stops_on_a_failed_batch():
     assert "after 500 of 600" in err.getvalue(), err.getvalue()
 
 
-# --- labels, noise folders, deferral ----------------------------------------
-
 def test_load_labels_reads_noise_patterns():
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as f:
         f.write('mappings:\n  web: Web App\nfallback: Misc\nnoise_patterns:\n'
@@ -591,11 +585,11 @@ def test_noise_folder_takes_session_label():
                                                 "project": re.split(r"[/\\]", cwd)[-1]})
     events = [
         ev(100, "/home/u/web", "s1"),
-        ev(200, "/tmp", "s1"),                     # nearest real row in s1 -> Web App
+        ev(200, "/tmp", "s1"),
         ev(300, "/home/u/api", "s2"),
-        ev(900, "/home/u/scratch-2", "s2"),        # -> api
-        ev(400, "/work/infra/tmp", "s3"),          # path_patterns on the full path wins
-        ev(500, "C:\\Users\\u\\tmp", "s4"),        # Windows path, no real row -> fallback
+        ev(900, "/home/u/scratch-2", "s2"),
+        ev(400, "/work/infra/tmp", "s3"),
+        ev(500, "C:\\Users\\u\\tmp", "s4"),
     ]
     assert dg.resolve_labels(events, labels) == ["Web App", "Web App", "api", "api", "Infra", "Misc"]
 

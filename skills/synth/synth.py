@@ -34,8 +34,6 @@ COVERAGE_SECTIONS = ["## What you worked on", "## What I skipped (and why)"]
 LOOP_RE = re.compile(r"^- \[( |x|X)\] (.+?)\s*\([^()]*(?:\([^()]*\)[^()]*)*since [^()]*\)\s*$")
 
 
-# --- collect (subcommand) ---------------------------------------------------
-
 def cmd_collect(args) -> int:
     cfg = load_config()
     tz = get_tz(cfg)
@@ -85,8 +83,6 @@ def cmd_collect(args) -> int:
     return 0
 
 
-# --- buckets (subcommand) ---------------------------------------------------
-
 def cmd_buckets(args) -> int:
     with open(args.week_json, encoding="utf-8") as f:
         week = json.load(f)
@@ -135,13 +131,9 @@ def cmd_buckets(args) -> int:
     return 0
 
 
-# --- week-links (subcommand) ------------------------------------------------
-
 def cmd_week_links(args) -> int:
     return link_into_hubs(args, "weekly")
 
-
-# --- lint (subcommand) ------------------------------------------------------
 
 def cmd_lint(args) -> int:
     failed = False
@@ -186,8 +178,6 @@ def cmd_lint(args) -> int:
     return 1 if failed else 0
 
 
-# --- coverage (subcommand) --------------------------------------------------
-
 def cmd_coverage(args) -> int:
     raw = open(args.buckets, encoding="utf-8").read() if args.buckets else sys.stdin.read()
     buckets = json.loads(raw).get("buckets", {})
@@ -217,8 +207,6 @@ def cmd_coverage(args) -> int:
           f"project(s) accounted for in {args.weekly_note}")
     return 0
 
-
-# --- dispatch ---------------------------------------------------------------
 
 def main() -> int:
     utf8_stdio()

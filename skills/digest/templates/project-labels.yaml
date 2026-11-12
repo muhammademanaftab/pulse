@@ -1,6 +1,8 @@
+# Folder name -> the project name to show in your notes.
 mappings:
+#  my-app-backend: My App
 fallback: Misc
 # Scratch folders never get their own Work log heading: their rows take the label
 # of the real project worked on in the same session (regex on the folder name).
-# noise_patterns:
-#   - regex: "^(tmp|temp|scratch.*|repo)$"
+noise_patterns:
+  - regex: "^(tmp|temp|scratch.*)$"

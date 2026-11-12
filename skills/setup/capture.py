@@ -29,7 +29,7 @@ from urllib.request import Request, urlopen
 ENV_FILE = os.path.expanduser("~/.pulse/.env")
 LOG_FILE = os.path.expanduser("~/.pulse/capture.log")
 MAX_LOG_BYTES = 5 * 1024 * 1024
-MAX_FIELD_CHARS = 100_000  # Convex caps documents at 1MB; stay well under it
+MAX_FIELD_CHARS = 100_000
 
 FILTERED_TOOL_FIELDS = {"content", "old_string", "new_string", "new_source"}
 COMMAND_NAME_RE = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>")
@@ -49,9 +49,6 @@ AUTO_INJECTED_PREFIXES = (
     "<bash-stderr>",
 )
 
-# Best-effort secret scrubbing. Everything captured (prompts, responses,
-# thinking, tool inputs like Bash commands) passes through these before it
-# leaves the machine. Not a guarantee, but it catches the common shapes.
 REDACT_PATTERNS = (
     ("private-key", re.compile(
         r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----.*?"
@@ -69,7 +66,6 @@ REDACT_PATTERNS = (
         r"|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})")),
     ("bearer", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.I)),
     ("basic-auth", re.compile(r"\bBasic\s+[A-Za-z0-9+/]{16,}={0,2}")),
-    # No leading \b: it would fail after an underscore, missing GITHUB_TOKEN=...
     ("assignment", re.compile(
         r"((?:api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|token|passwd|password)"
         r"\b['\"]?\s*[=:]\s*"
@@ -99,8 +95,6 @@ def make_event_id(session_id: str, prompt: str, response: str) -> str:
     return hashlib.sha256(
         f"{session_id}:{prompt}:{response}".encode("utf-8")).hexdigest()[:32]
 
-
-# --- credentials + logging --------------------------------------------------
 
 def log(msg: str) -> None:
     try:
@@ -141,8 +135,6 @@ def load_env() -> tuple[str | None, str | None]:
         return None, None
     return url, token
 
-
-# --- transcript parsing -----------------------------------------------------
 
 def get_git_info(cwd: str) -> tuple[str, str]:
     repo_name = os.path.basename(cwd.rstrip("/\\")) or "unknown"
@@ -265,9 +257,9 @@ def render_assistant(parsed: list[dict], start: int) -> tuple[str, str | None]:
                 last_was_task_noti = True
 
     if enqueue_count and enqueue_count != task_noti_count:
-        return "", None  # background work pending, skip
+        return "", None
     if last_was_task_noti:
-        return "", None  # assistant hasn't responded yet, skip
+        return "", None
     return "\n".join(parts).strip(), model or "claude-code"
 
 
@@ -308,8 +300,6 @@ def extract_from_transcript(path: str) -> tuple[str | None, str | None, str | No
     return last_user_text, response, model
 
 
-# --- POST to Convex ---------------------------------------------------------
-
 def post_event(url: str, token: str, payload: dict) -> None:
     endpoint = url.rstrip("/") + "/ingest"
     req = Request(
@@ -327,8 +317,6 @@ def post_event(url: str, token: str, payload: dict) -> None:
             f"response={len(payload.get('response') or '')}c status={resp.status}"
         )
 
-
-# --- entrypoint -------------------------------------------------------------
 
 def main() -> None:
     url, token = load_env()
@@ -382,6 +370,6 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:  # never break the session
+    except Exception as e:
         log(f"fatal: {e}")
     sys.exit(0)

@@ -1,7 +1,7 @@
 # Digest
 
 Builds yesterday's daily note and pushes it to your notes repo, nightly, with your
-machine off. Create it per [README.md](README.md) (Name, Model, both repos, the `pulse`
+machine off. Create it per [README.md](README.md) (Name, Model, repos, the `pulse`
 environment, permissions). Trigger: daily, late evening in `PULSE_TZ`.
 
 Instructions (paste into the routine):

@@ -1,7 +1,7 @@
-"""Shared helpers for the Pulse skill scripts (digest.py, synth.py).
+"""Shared helpers for the Pulse skill scripts (digest, projects, synth, posts, recall).
 
-Config, timezone, the existence-based linking rule, and the month hub + index
-wiring. Stdlib only. Each skill script adds this folder to sys.path and imports
+Config, timezone, the existence-based linking rule, reading daily notes, and
+the month hub + index wiring. Stdlib only. Each skill script adds this folder to sys.path and imports
 what it needs.
 """
 from __future__ import annotations

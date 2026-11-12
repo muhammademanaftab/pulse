@@ -24,7 +24,6 @@ spec.loader.exec_module(cap)
 
 def write_transcript(entries: list[dict]) -> str:
     fd, path = tempfile.mkstemp(suffix=".jsonl")
-    # Raw UTF-8, not \u escapes, matching what Claude Code writes.
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         for e in entries:
             f.write(json.dumps(e, ensure_ascii=False) + "\n")
@@ -38,8 +37,6 @@ def user(text) -> dict:
 def assistant(blocks, model="claude-test") -> dict:
     return {"type": "assistant", "message": {"model": model, "content": blocks}}
 
-
-# --- transcript parsing -----------------------------------------------------
 
 def test_extracts_last_prompt_and_response():
     path = write_transcript([
@@ -56,8 +53,6 @@ def test_extracts_last_prompt_and_response():
 
 
 def test_skips_auto_injected_prompts():
-    # The only real user text is the earlier one; the later "user" entry is an
-    # auto-injected system reminder and must not be picked as the prompt.
     path = write_transcript([
         user("real question"),
         assistant([{"type": "text", "text": "answer"}]),
@@ -82,7 +77,6 @@ def test_tool_use_filtering():
     os.unlink(path)
     assert "command: ls -la" in response, response
     assert "file_path: /x.py" in response, response
-    # Filtered fields never appear.
     assert "should be dropped" not in response, response
     assert "old_string" not in response and "new_string" not in response, response
 
@@ -101,8 +95,6 @@ def test_thinking_captured():
 
 
 def test_skips_pending_background_work():
-    # An enqueue with no matching task-notification means work is still pending;
-    # render_assistant signals skip (empty response, None model).
     path = write_transcript([
         user("kick off background work"),
         {"type": "queue-operation", "operation": "enqueue"},
@@ -114,9 +106,6 @@ def test_skips_pending_background_work():
 
 
 def test_non_ascii_transcript_on_non_utf8_locale():
-    # Windows defaults open() to the system codepage (e.g. cp1252), which
-    # can't decode em dashes or curly quotes. Simulate that default and make
-    # sure the parser still reads the transcript as UTF-8.
     path = write_transcript([
         user("why \u201cquoted\u201d?"),
         assistant([{"type": "text", "text": "because \u2014 reasons \u2713"}]),
@@ -145,8 +134,6 @@ def test_empty_transcript():
     assert result == (None, None, None), result
 
 
-# --- redaction --------------------------------------------------------------
-
 def test_redaction_each_class():
     cases = {
         "private-key": "-----BEGIN RSA PRIVATE KEY-----\nMII\n-----END RSA PRIVATE KEY-----",
@@ -167,13 +154,11 @@ def test_redaction_each_class():
     for kind, sample in cases.items():
         out = cap.redact(sample)
         assert f"[REDACTED:{kind}]" in out, (kind, out)
-        # The secret substring itself is gone.
         secret = sample.split()[-1]
         assert secret not in out, (kind, out)
 
 
 def test_redaction_prefixed_env_vars():
-    # Real-world shapes: the keyword sits after an underscore prefix.
     for sample in (
         "export GITHUB_TOKEN=ghsecretvalue99",
         "DB_PASSWORD=hunter2hunter2",
@@ -290,7 +275,6 @@ def test_load_env_refuses_http():
 
 
 def test_event_id_stable_across_refires():
-    # Same transcript content -> same id (dedup works); different turn -> different id.
     a = cap.make_event_id("sess-1", "do the thing", "did the thing")
     b = cap.make_event_id("sess-1", "do the thing", "did the thing")
     c = cap.make_event_id("sess-1", "do the thing", "did it differently")
