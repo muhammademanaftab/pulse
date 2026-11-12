@@ -180,7 +180,10 @@ SKILL file.
    python3 skills/digest/digest.py carry-forward --note "<note_path>"
    ```
 
-   For every `CARRIED ... into <note>` or `CLOSED ... in <note>` line, lint that note
+   For every `CLOSED ... in <note>` line, open that note and read its Summary: if
+   it still says the closed item is open or unfinished, rewrite that sentence so
+   it no longer does (change nothing else). For every `CARRIED ... into <note>`
+   or `CLOSED ... in <note>` line, lint that note
    (`digest.py lint "<note>"`). If it fails, fix only what lint names in that
    note, keeping the carried items, and re-lint.
 

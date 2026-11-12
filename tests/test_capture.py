@@ -199,6 +199,14 @@ def test_redaction_more_shapes():
         assert "[REDACTED:" in out and secret not in out, (sample, out)
 
 
+def test_redaction_keeps_the_variable_name_and_the_specific_kind():
+    assert cap.redact("STRIPE_API_KEY=sk_test_abcdefghij1234 pytest") == \
+        "STRIPE_API_KEY=[REDACTED:stripe-key] pytest"
+    assert cap.redact("GH_TOKEN=github_pat_11ABCDEFG0abcdefghijklmn") == "GH_TOKEN=[REDACTED:github-token]"
+    assert cap.redact('{"password": "hunter2hunter2"}') == '{"password": "[REDACTED:assignment]"}'
+    assert cap.redact("DB_PASSWORD=hunter2hunter2") == "DB_PASSWORD=[REDACTED:assignment]"
+
+
 def test_redaction_leaves_commit_shas_and_env_lookups():
     for harmless in (
         "git checkout 0123456789abcdef0123456789abcdef01234567",

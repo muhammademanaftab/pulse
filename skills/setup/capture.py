@@ -71,17 +71,18 @@ REDACT_PATTERNS = (
     ("basic-auth", re.compile(r"\bBasic\s+[A-Za-z0-9+/]{16,}={0,2}")),
     # No leading \b: it would fail after an underscore, missing GITHUB_TOKEN=...
     ("assignment", re.compile(
-        r"(?:api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|token|passwd|password)"
+        r"((?:api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|token|passwd|password)"
         r"\b['\"]?\s*[=:]\s*"
-        r"(?!['\"]?(?:process\.env|os\.environ|os\.getenv|\$\{?[A-Za-z_]|undefined\b|null\b|None\b))"
-        r"['\"]?[^\s'\"]{8,}", re.I)),
+        r"(?!['\"]?(?:process\.env|os\.environ|os\.getenv|\$\{?[A-Za-z_]|undefined\b|null\b|None\b"
+        r"|\[REDACTED:))"
+        r"['\"]?)[^\s'\"]{8,}", re.I)),
     ("hex", re.compile(r"\b(?![a-f0-9]{40}\b)[a-fA-F0-9]{40,}\b")),
 )
 
 
 def redact(text: str) -> str:
     for kind, rx in REDACT_PATTERNS:
-        text = rx.sub(f"[REDACTED:{kind}]", text)
+        text = rx.sub(lambda m, kind=kind: (m.group(1) if rx.groups else "") + f"[REDACTED:{kind}]", text)
     return text
 
 

@@ -159,8 +159,8 @@ def install_hook() -> None:
     print(f"5. Copied capture script to {HOOK_DEST}")
 
     ours = [h for group in stop if isinstance(group, dict)
-            for h in group.get("hooks", [])
-            if isinstance(h, dict) and "pulse-capture.py" in h.get("command", "")]
+            for h in (group.get("hooks") if isinstance(group.get("hooks"), list) else [])
+            if isinstance(h, dict) and "pulse-capture.py" in str(h.get("command", ""))]
     if any(h.get("command") != HOOK_COMMAND for h in ours):
         for h in ours:
             h["command"] = HOOK_COMMAND
