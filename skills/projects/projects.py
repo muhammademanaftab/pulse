@@ -131,9 +131,10 @@ def cmd_sync(args) -> int:
     if not args.vault and not cfg_get(cfg, "notes_repo", "NOTES_REPO", ""):
         print("ERROR: no notes_repo; run skills/setup/install.py notes", file=sys.stderr)
         return 2
-    daily_dir = os.path.join(vault, cfg_get(cfg, "vault_subfolder", "PULSE_VAULT_SUBFOLDER", "Pulse/Daily"))
-    projects_dir = os.path.join(
-        vault, cfg_get(cfg, "projects_subfolder", "PULSE_PROJECTS_SUBFOLDER", "Pulse/Projects"))
+    daily_dir = os.path.normpath(os.path.join(
+        vault, cfg_get(cfg, "vault_subfolder", "PULSE_VAULT_SUBFOLDER", "Pulse/Daily")))
+    projects_dir = os.path.normpath(os.path.join(
+        vault, cfg_get(cfg, "projects_subfolder", "PULSE_PROJECTS_SUBFOLDER", "Pulse/Projects")))
     ignore = set(args.ignore) if args.ignore else {"Misc"}
 
     existing = {os.path.splitext(f)[0].lower(): os.path.splitext(f)[0]
