@@ -158,6 +158,32 @@ def test_redaction_each_class():
         assert secret not in out, (kind, out)
 
 
+def test_redaction_provider_tokens():
+    samples = [
+        "npm_" + "a1B2" * 9,
+        "123456789:" + "AA" + "a1_B-" * 6 + "abc",
+        "123456789:" + "AA" + "a1_B-" * 6 + "ab-",
+        "lin_api_" + "a1B2c3D4" * 5,
+    ]
+    samples.extend(prefix + "a1B2c3D4" * 4
+                   for prefix in ("shpat_", "shpca_", "shppa_"))
+    for sample in samples:
+        out = cap.redact("credential (" + sample + "), end")
+        assert sample not in out, out
+        assert "[REDACTED:token]" in out, out
+        assert out.endswith("), end"), out
+        assert cap.redact(out) == out, out
+
+
+def test_redaction_leaves_normal_numbers_and_colons():
+    for text in (
+        "Meeting starts at 12:30 and ends at 13:15.",
+        "Order 123456789: ready for collection.",
+        "npm_package_name and lin_api_examples are labels.",
+    ):
+        assert cap.redact(text) == text, text
+
+
 def test_redaction_prefixed_env_vars():
     for sample in (
         "export GITHUB_TOKEN=ghsecretvalue99",
