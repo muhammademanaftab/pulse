@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in Pulse does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please remove secrets, private paths and note contents from anything you paste. Security problems go through a private advisory instead (see SECURITY.md).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part?
+      options:
+        - Setup (install.py, the setup runbook)
+        - Capture (the Stop hook)
+        - Daily note (digest)
+        - Weekly note (synth)
+        - Project pages
+        - Recall
+        - Post drafts
+        - Cloud routines
+        - Docs
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Ran ...
+        2. Saw ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: The traceback or command output, with secrets removed.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Pulse version
+      description: A release tag (for example v0.3.1) or a commit.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS and Python version
+      placeholder: macOS 15, Python 3.9.6
+    validations:
+      required: true

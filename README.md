@@ -186,6 +186,10 @@ project name in your notes (`my-app-backend: My App`), and to list scratch folde
 
 Pulse is early (0.x). Capture, the daily note, project pages, the weekly recap, recall and post drafts work today. A devlog and a brag document are planned, not built yet. Expect rough edges and breaking changes until 1.0.
 
+## Contributing
+
+PRs are welcome. Start with an issue labeled [good first issue](https://github.com/muhammademanaftab/pulse/labels/good%20first%20issue), and read [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the tests and the house rules. Questions and ideas go in [Discussions](https://github.com/muhammademanaftab/pulse/discussions).
+
 ## License
 
 [MIT](LICENSE).
