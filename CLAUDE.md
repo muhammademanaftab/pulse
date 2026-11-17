@@ -23,9 +23,11 @@ digest SKILL" (notes), matching how Eman actually runs it.
 - **Capture (L0):** `skills/setup/capture.py` runs as a `Stop` hook in the user's
   `~/.claude/settings.json`, POSTing each turn to `{CONVEX_URL}/ingest`. Creds in
   `~/.pulse/.env`. No-ops if unconfigured, always exits 0 (never breaks a session).
+  One adapter per tool (`ADAPTERS`, picked by `--source`) feeds a tool-blind core that
+  redacts and sends; only `claude-code` exists so far (roadmap: issue #61).
 - **Setup:** `skills/setup/SKILL.md` (agent-driven runbook) + `skills/setup/install.py`
   (re-runnable, stdlib only). install.py deploys the backend, writes `~/.pulse/.env`,
-  copies capture.py to `~/.claude/hooks/pulse-capture.py`, and safely merges the `Stop`
+  copies capture.py to `~/.pulse/hooks/pulse-capture.py`, and safely merges the `Stop`
   hook into `settings.json`. The user only does the Convex browser login.
 - **Backend (L1):** `backend/` is a per-user Convex deployment. A `prompts`
   table + HTTP API (`/ingest`, `/unprocessed`, `/all`, `/mark-processed`), Bearer

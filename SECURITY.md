@@ -14,7 +14,8 @@ each turn it stores, in your Convex deployment:
   `new_source` dropped at any depth, so the bodies of file writes and edits are not
   sent. Shell commands are sent as written, so a command that writes a file inline
   (a heredoc) includes that text
-- project name, working directory path, git user name, session id, timestamp, model
+- project name, working directory path, git user name, session id, timestamp, model,
+  and the tool the turn came from (`claude-code`)
 
 ## How it is protected
 

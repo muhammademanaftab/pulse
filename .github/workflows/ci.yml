@@ -64,7 +64,7 @@ jobs:
           src = src.replace(os.sep, '/')
           # Windows command quotes the path; POSIX uses ~, which bash expands safely.
           cmd = cmd.replace(m.HOOK_DEST.replace(os.sep, '/'), src)
-          cmd = cmd.replace('~/.claude/hooks/pulse-capture.py', f'\"{src}\"')
+          cmd = cmd.replace('~/.pulse/hooks/pulse-capture.py', f'\"{src}\"')
           home = tempfile.mkdtemp()
           r = subprocess.run([shutil.which('bash') or 'bash', '-c', cmd], input='{}', text=True, encoding='utf-8',
                              env={**os.environ, 'HOME': home, 'USERPROFILE': home})
@@ -78,7 +78,7 @@ jobs:
       - name: Capture parser and redaction tests
         run: python3 tests/test_capture.py
 
-      - name: Uninstall preserves other hooks and user data
+      - name: Hook install, upgrade and uninstall keep other hooks and user data
         run: python3 tests/test_install.py
 
       - name: Daily note structure, open loops, label folding tests

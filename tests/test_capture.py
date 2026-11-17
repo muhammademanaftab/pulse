@@ -15,6 +15,8 @@ import io
 import json
 import ntpath
 import os
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -467,6 +469,140 @@ def test_unlisted_turn_still_captures():
             cap.main()
             post.assert_called_once()
             assert post.call_args.args[2]["message"] == "synthetic prompt"
+
+
+EVENT_FIELDS = {"username", "timestamp", "event_id", "message", "response", "project",
+                "project_path", "session_id", "model", "source"}
+FAKE_SECRET = "npm_" + "a1B2" * 9
+
+
+def claude_code_hook(root: str) -> dict:
+    transcript = os.path.join(root, "transcript.jsonl")
+    with open(transcript, "w", encoding="utf-8") as f:
+        f.write(json.dumps(user("deploy with " + FAKE_SECRET)) + "\n")
+        f.write(json.dumps(assistant([{"type": "text", "text": "used " + FAKE_SECRET}])) + "\n")
+    return {"cwd": root, "session_id": "fake-session", "transcript_path": transcript}
+
+
+HOOK_INPUTS = {"claude-code": claude_code_hook}
+
+
+def test_every_adapter_returns_the_same_event_and_is_redacted():
+    assert set(cap.ADAPTERS) == set(HOOK_INPUTS), "add a fake hook input for each adapter"
+    for source, hook_input in HOOK_INPUTS.items():
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                    patch.object(cap, "get_git_info", return_value=("project", "user")):
+                event = cap.capture(source, hook_input(root))
+        assert set(event) == EVENT_FIELDS, (source, sorted(event))
+        assert event["source"] == source, event
+        assert all(isinstance(event[k], str) and event[k] for k in EVENT_FIELDS), (source, event)
+        for field in ("message", "response"):
+            assert FAKE_SECRET not in event[field], (source, field)
+            assert "[REDACTED:token]" in event[field], (source, field, event[field])
+
+
+def test_core_checks_the_ignore_list_before_an_adapter_reads_the_turn():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write(root + "\n")
+        calls = []
+        fake = (lambda hook_input: root, lambda hook_input: calls.append(hook_input))
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"), \
+                patch.dict(cap.ADAPTERS, {"fake": fake}):
+            assert cap.capture("fake", {}) is None
+        assert calls == [], calls
+
+
+def test_adapter_without_a_turn_sends_nothing():
+    with tempfile.TemporaryDirectory() as root:
+        fake = (lambda hook_input: root, lambda hook_input: None)
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                patch.dict(cap.ADAPTERS, {"fake": fake}), \
+                patch.object(cap, "get_git_info") as git:
+            assert cap.capture("fake", {}) is None
+            git.assert_not_called()
+
+
+def test_event_carries_the_source_it_was_captured_with():
+    with tempfile.TemporaryDirectory() as root:
+        turn = {"prompt": "fake prompt", "response": "", "model": None, "session_id": "fake"}
+        fake = (lambda hook_input: root, lambda hook_input: turn)
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                patch.dict(cap.ADAPTERS, {"fake": fake}), \
+                patch.object(cap, "get_git_info", return_value=("project", "user")):
+            event = cap.capture("fake", {})
+    assert event["source"] == "fake" and event["model"] == "unknown", event
+    assert event["event_id"] == cap.make_event_id("fake", "fake prompt", ""), event
+
+
+def test_source_argument():
+    assert cap.source_arg([]) == "claude-code"
+    assert cap.source_arg(["--source", "codex"]) == "codex"
+    assert cap.source_arg(["--source=codex"]) == "codex"
+    assert cap.source_arg(["--other", "--source", "cursor"]) == "cursor"
+    assert cap.source_arg(["--source"]) == ""
+    assert cap.source_arg(["--source="]) == ""
+
+
+def test_hook_run_as_a_process_reads_its_source_and_stays_silent():
+    with tempfile.TemporaryDirectory() as home:
+        os.makedirs(os.path.join(home, ".pulse"))
+        with open(os.path.join(home, ".pulse", ".env"), "w", encoding="utf-8") as f:
+            f.write("CONVEX_URL=https://example.invalid\nCONVEX_TOKEN=fake\n")
+        env = {**os.environ, "HOME": home, "USERPROFILE": home}
+        if sys.version_info < (3, 10):
+            env.pop("PYTHONWARNINGS", None)
+        script = os.path.join(REPO, "skills", "setup", "capture.py")
+        for argv in (["--source", "nope"], ["--source=nope"]):
+            result = subprocess.run([sys.executable, script, *argv], input=b"{}", env=env,
+                                    capture_output=True, timeout=30)
+            assert (result.returncode, result.stdout, result.stderr) == (0, b"", b""), result
+        with open(os.path.join(home, ".pulse", "capture.log"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        assert len(lines) == 2 and all("unknown source 'nope'" in line for line in lines), lines
+
+
+def run_main(hook: dict, argv=None):
+    with patch.object(cap, "load_env", return_value=("https://example.invalid", "fake")), \
+            patch.object(cap, "sys", SimpleNamespace(stdin=SimpleNamespace(
+                buffer=io.BytesIO(json.dumps(hook).encode("utf-8"))))), \
+            patch.object(cap, "get_git_info", return_value=("project", "user")), \
+            patch.object(cap, "post_event") as post, patch.object(cap, "log") as logged:
+        cap.main() if argv is None else cap.main(argv)
+    return post, logged
+
+
+def test_hook_command_without_a_source_still_captures_as_claude_code():
+    with tempfile.TemporaryDirectory() as root:
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")):
+            post, _ = run_main(claude_code_hook(root))
+            explicit, _ = run_main(claude_code_hook(root), ["--source", "claude-code"])
+    post.assert_called_once()
+    assert post.call_args.args[2]["source"] == "claude-code"
+    assert explicit.call_args.args[2]["source"] == "claude-code"
+    assert post.call_args.args[2]["event_id"] == explicit.call_args.args[2]["event_id"]
+
+
+def test_unknown_source_sends_nothing_and_says_so():
+    with tempfile.TemporaryDirectory() as root:
+        for argv in (["--source", "nope"], ["--source"]):
+            post, logged = run_main(claude_code_hook(root), argv)
+            post.assert_not_called()
+            logged.assert_called_once()
+            assert "unknown source" in logged.call_args.args[0], logged.call_args
+
+
+def test_event_id_formula_is_pinned_and_uses_the_unredacted_turn():
+    assert cap.make_event_id("fake-session", "first prompt", "first answer") == \
+        "d892bdc5927022dc11b56c4ac4aa4643"
+    with tempfile.TemporaryDirectory() as root:
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                patch.object(cap, "get_git_info", return_value=("project", "user")):
+            event = cap.capture("claude-code", claude_code_hook(root))
+    assert event["event_id"] == cap.make_event_id(
+        "fake-session", "deploy with " + FAKE_SECRET, "used " + FAKE_SECRET), event
 
 
 def test_truncation():
