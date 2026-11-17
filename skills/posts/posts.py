@@ -4,7 +4,7 @@
 Subcommands (run `posts.py <cmd> -h` for each):
   collect     resolve the week, gather the weekly note and project pages, print JSON
   post-links  wire the drafts file into its month hub + posts index (idempotent)
-  lint        gate: layout, LinkedIn and X length limits, plain text, no em dash
+  lint        gate: layout, social post length and plain text, draft style
 
 Stdlib only. No LLM (the writing step lives in skills/posts/SKILL.md). Reads the
 weekly note the synth wrote, the week's daily notes and the project pages; never
@@ -27,7 +27,7 @@ from common import (  # noqa: E402
 LINKEDIN_MAX = 3000
 TWEET_MAX = 280
 HASHTAG_MAX = 5
-SECTIONS = ["## LinkedIn", "## X", "## Sources"]
+SECTIONS = ["## LinkedIn", "## X", "## Devlog", "## Sources"]
 ABOUT_RE = re.compile(r"^# [^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
 MARKUP_RE = re.compile(
     r"\[\[|\*\*|__|~~|`|\]\(|</?[a-zA-Z][^>\n]*>|\*[^\s*][^*\n]*\*|^#{1,6} |^> ", re.M)
@@ -165,8 +165,12 @@ def lint_post(raw: str) -> list[str]:
             problems.append(f"## X post {n} is {x_length(tweet)} characters as X counts them "
                             f"(max {TWEET_MAX})")
 
-    for name, body in (("## LinkedIn", section), ("## X", "\n\n".join(thread))):
-        if (m := MARKUP_RE.search(body)):
+    devlog = (h2_body(raw, "## Devlog") or "").strip()
+    if not devlog:
+        problems.append("## Devlog is empty")
+
+    for name, body in (("## LinkedIn", section), ("## X", "\n\n".join(thread)), ("## Devlog", devlog)):
+        if name != "## Devlog" and (m := MARKUP_RE.search(body)):
             problems.append(f"{name} must be plain text ready to paste, found {m.group(0).strip()!r}")
         if (m := PLACEHOLDER_RE.search(body)):
             problems.append(f"{name} still has template placeholder text: {m.group(0).strip()!r}")
@@ -221,7 +225,7 @@ def main() -> int:
     pl.add_argument("--index", required=True)
     pl.set_defaults(fn=cmd_post_links)
 
-    li = sub.add_parser("lint", help="gate: layout, length limits, plain text")
+    li = sub.add_parser("lint", help="gate: layout, social post limits, draft style")
     li.add_argument("posts", nargs="+")
     li.set_defaults(fn=cmd_lint)
 

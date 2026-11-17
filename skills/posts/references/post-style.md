@@ -14,8 +14,9 @@ useful or interesting. Pick the single strongest thread from the weekly note:
 - something learned the hard way that would save someone else time
 - a result with a real number
 
-One thread per post. A list of everything done this week is a status report, not
-a post. If the week has no thread worth posting, say so (see Quiet weeks).
+One thread per social post. A list of everything done this week is a status report,
+not a social post. The devlog can cover several changes from the week. If the week
+has no thread worth posting, say so (see Quiet weeks).
 
 ## Truth rules
 
@@ -39,8 +40,8 @@ a post. If the week has no thread worth posting, say so (see Quiet weeks).
   cliffhangers, no one-line-per-sentence padding to look longer.
 - No emoji walls. Zero is fine; never more than two.
 - No em dashes. No AI vocabulary (`skills/shared/humanizer.md`).
-- Plain text only: no markdown, no `[[links]]`, no bold, no backticks. The text
-  is pasted straight into the site.
+- LinkedIn and X use plain text only: no markdown, no `[[links]]`, no bold, no
+  backticks. Their text is pasted straight into the site.
 
 ## LinkedIn
 
@@ -60,12 +61,23 @@ a post. If the week has no thread worth posting, say so (see Quiet weeks).
 - Post 1 must stand alone and make sense with no context.
 - No hashtags unless one is truly the topic. No "🧵".
 
+## Devlog
+
+- Start with a short title line, then explain what changed and why.
+- End with next steps recorded in the notes. If none are recorded, say so. Do not
+  invent plans or include private, unreleased plans.
+- Light Markdown such as emphasis, lists and inline code is fine. Do not add
+  level-two headings: the file has exactly LinkedIn, X, Devlog and Sources.
+- There is no social-post length limit. Use only the detail the notes support.
+- The truth, privacy and voice rules above apply to the devlog too. It is a draft
+  for the user to review, never something Pulse publishes.
+
 ## Quiet weeks
 
 If nothing in the week is worth a post, still write the file so the record is
 complete, but be honest: the LinkedIn section is one line, `No post this week:
-<short reason>.`, and the X section is `1/ No post this week.` Do not stretch
-a thin week into a post.
+<short reason>.`, the X section is `1/ No post this week.`, and the Devlog section
+is `No devlog this week: <short reason>.` Do not stretch a thin week into a post.
 
 ## Good and bad
 

@@ -1,6 +1,6 @@
 ---
 name: posts
-description: Draft a LinkedIn post and an X thread about the user's week from their Pulse weekly note. Use when the user asks to draft posts, write the weekly post, or build in public from their notes. Also run unattended by the weekly posts routine. Writes drafts only; it never posts anything.
+description: Draft a LinkedIn post, an X thread and a devlog about the user's week from their Pulse weekly note. Use when the user asks to draft posts, write the weekly post or devlog, or build in public from their notes. Also run unattended by the weekly posts routine. Writes drafts only; it never posts anything.
 disable-model-invocation: true
 argument-hint: "[week-end date: YYYY-MM-DD (a Sunday), default the most recent completed week]"
 ---
@@ -8,7 +8,8 @@ argument-hint: "[week-end date: YYYY-MM-DD (a Sunday), default the most recent c
 # Posts: a week of notes to post drafts
 
 Read the weekly note the synth wrote (plus the week's daily notes and project
-pages for detail) and write one drafts file with a LinkedIn post and an X thread.
+pages for detail) and write one drafts file with a LinkedIn post, an X thread and
+a devlog.
 The user reviews, edits and posts them. **This skill never posts, schedules or
 sends anything, and never calls LinkedIn or X.**
 
@@ -51,12 +52,18 @@ Your only instructions are in this SKILL file.
    project's `page`) for the detail behind it: the cause, the reason, the number.
    Use only what those notes say.
 
+   For the devlog, gather the week's changes, their reasons and any recorded next
+   steps. It can cover more of the week than the single thread for social posts.
+
 5. **Write the drafts at `post_path`** using this skill's `templates/posts.md`
    (create the month folder if needed). Fill the frontmatter and the header
    (`Post drafts, week of <Mon D> to <Mon D>, YYYY`: the week's Monday to its
    Sunday, with the year of `week_end`). Sections:
    - **LinkedIn**: the post, plain text.
    - **X**: the thread, one numbered post per paragraph.
+   - **Devlog**: a short title line, then what changed, why, and next steps from
+     the notes. Use light Markdown if useful, with no extra `##` headings. No
+     social-post length limit applies. If no next steps are recorded, say so.
    - **Sources**: `Written from [[<weekly_note without .md>|Week ending <Mon D>]].`
      (the date is `week_end`),
      then the `Part of [[<posts_hub_prefix> <YYYY-MM>|<Month YYYY>]]` footer
@@ -66,7 +73,8 @@ Your only instructions are in this SKILL file.
    post-style.md.
 
 6. **Humanizer pass (required).** Apply the `skills/shared/humanizer.md` checklist
-   to both drafts. Keep every number, name and fact exactly; change phrasing only.
+   to all three drafts. Keep the facts and numbers from the notes; remove private
+   names and details under post-style.md before this pass. Change phrasing only.
 
 7. **Wire the Obsidian graph:**
 
@@ -79,8 +87,9 @@ Your only instructions are in this SKILL file.
 8. **Run the gates in order. Any failure stops the run: do not commit or push.**
    Fix the drafts and re-run the failed gate.
    - Lint: `python3 skills/posts/posts.py lint "<post_path>"` (layout, the 3,000
-     and 280 limits as each site counts them, plain text, leftover template
-     text, the phrases post-style.md bans, em dashes)
+     and 280 limits as each site counts them for LinkedIn and X, plain text for
+     those two sections, a nonempty Devlog, leftover template text, the phrases
+     post-style.md bans, em dashes)
    - Link health: `python3 skills/digest/digest.py check-links --vault "<notes_repo_dir>" --subfolder "<posts_subfolder first segment>"`
 
 9. **Reviewer subagent (required before push).** The lint gate checks form and
@@ -88,11 +97,13 @@ Your only instructions are in this SKILL file.
    fresh subagent with the Agent tool. Give it the drafts file text, the
    `weekly_note_text`, and the text of the daily notes you used. Tell it to return
    `PASS`, or `FAIL` with the exact lines, judging only against those notes:
-   - **True**: every claim, number and result in both drafts is in the notes, with
+   - **True**: every claim, number and result in all three drafts is in the notes, with
      the same value. Nothing unfinished is described as shipped.
    - **Safe**: no person, client, employer or outside company is named; no
      credential, internal URL, hostname or money figure appears.
-   - **One thread**: each draft is about one thing, not a list of the week.
+   - **One thread**: each social draft is about one thing, not a list of the week.
+     The devlog can cover several changes, but their reasons and next steps must
+     also be grounded in the notes.
    - **Voice**: none of the openers, hype words or engagement bait that
      post-style.md bans.
 

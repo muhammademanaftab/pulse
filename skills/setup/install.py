@@ -4,6 +4,7 @@
   python3 skills/setup/install.py                         wire capture (default)
   python3 skills/setup/install.py notes --repo <path> --create   configure daily notes
   python3 skills/setup/install.py recall                  install the /pulse-recall skill
+  python3 skills/setup/install.py uninstall               remove the hook and recall skill
 """
 from __future__ import annotations
 
@@ -25,15 +26,16 @@ ENV_FILE = os.path.join(PULSE_HOME, ".env")
 CONFIG_FILE = os.path.join(PULSE_HOME, "config.yaml")
 CONFIG_EXAMPLE = os.path.join(REPO, "config.example.yaml")
 CLAUDE_DIR = os.path.expanduser("~/.claude")
-HOOKS_DIR = os.path.join(CLAUDE_DIR, "hooks")
+HOOKS_DIR = os.path.join(PULSE_HOME, "hooks")
 HOOK_DEST = os.path.join(HOOKS_DIR, "pulse-capture.py")
+LEGACY_HOOK = os.path.join(CLAUDE_DIR, "hooks", "pulse-capture.py")
 SETTINGS = os.path.join(CLAUDE_DIR, "settings.json")
 if os.name == "nt":
     _exe = getattr(sys, "_base_executable", None) or sys.executable
     _py, _hook = (p.replace("\\", "/") for p in (_exe, HOOK_DEST))
-    HOOK_COMMAND = f'"{_py}" "{_hook}" || true'
+    HOOK_COMMAND = f'"{_py}" "{_hook}" --source claude-code || true'
 else:
-    HOOK_COMMAND = 'python3 ~/.claude/hooks/pulse-capture.py || true'
+    HOOK_COMMAND = 'python3 ~/.pulse/hooks/pulse-capture.py --source claude-code || true'
 
 
 def die(msg: str) -> None:
@@ -129,6 +131,7 @@ def save_settings(settings: dict) -> str:
     backed_up = os.path.isfile(SETTINGS)
     if backed_up:
         shutil.copy(SETTINGS, SETTINGS + ".bak")
+    os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
     with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
         f.write("\n")
@@ -166,6 +169,10 @@ def install_hook() -> None:
         stop.append({"matcher": "", "hooks": [
             {"type": "command", "command": HOOK_COMMAND, "timeout": 30}]})
         print(f"   added the Stop hook to {SETTINGS}{save_settings(settings)}")
+    if os.path.isfile(LEGACY_HOOK) and not os.path.islink(LEGACY_HOOK):
+        shutil.copy(os.path.join(HERE, "capture.py"), LEGACY_HOOK)
+        print(f"   refreshed the older copy at {LEGACY_HOOK} (other settings files may still "
+              "point at it; `install.py uninstall` removes it)")
 
 
 def verify(url: str, token: str) -> None:
@@ -292,6 +299,62 @@ def cmd_recall() -> int:
     return 0
 
 
+def cmd_uninstall() -> int:
+    removed = False
+    try:
+        if os.path.lexists(SETTINGS):
+            try:
+                with open(SETTINGS, encoding="utf-8") as f:
+                    settings = json.load(f)
+            except ValueError:
+                die(f"{SETTINGS} is not valid JSON; fix or move it, then re-run.")
+            hooks = settings.get("hooks", {}) if isinstance(settings, dict) else None
+            stop = hooks.get("Stop", []) if isinstance(hooks, dict) else None
+            if not isinstance(stop, list):
+                die(f"{SETTINGS} has an unexpected shape (it must be an object whose `hooks` is an "
+                    "object and `hooks.Stop` a list); fix or move it, then re-run.")
+            kept_groups = []
+            for group in stop:
+                entries = group.get("hooks") if isinstance(group, dict) else None
+                if not isinstance(entries, list):
+                    kept_groups.append(group)
+                    continue
+                kept = [h for h in entries if not (
+                    isinstance(h, dict) and "pulse-capture.py" in str(h.get("command", "")))]
+                if len(kept) == len(entries):
+                    kept_groups.append(group)
+                else:
+                    removed = True
+                    if kept:
+                        kept_groups.append({**group, "hooks": kept})
+            if removed:
+                settings["hooks"]["Stop"] = kept_groups
+                print(f"Removed the Pulse Stop hook from {SETTINGS}{save_settings(settings)}")
+
+        for hook in (HOOK_DEST, LEGACY_HOOK):
+            if os.path.lexists(hook):
+                os.unlink(hook)
+                removed = True
+                print(f"Removed {hook}")
+        if os.path.isdir(HOOKS_DIR) and not os.listdir(HOOKS_DIR):
+            os.rmdir(HOOKS_DIR)
+        recall = os.path.join(CLAUDE_DIR, "skills", "pulse-recall")
+        if os.path.lexists(recall):
+            if os.path.islink(recall) or os.path.isfile(recall):
+                os.unlink(recall)
+            else:
+                shutil.rmtree(recall)
+            removed = True
+            print(f"Removed {recall}")
+    except OSError as e:
+        die(f"could not finish uninstall: {e}")
+    if not removed:
+        print("nothing to remove")
+    print("Kept ~/.pulse/, the Convex deployment and the notes repo; remove the local folders "
+          "manually and delete the deployment in the Convex dashboard if you want to remove that data.")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd")
@@ -301,11 +364,14 @@ def main() -> int:
     n.add_argument("--create", action="store_true")
     n.add_argument("--timezone", default=None)
     sub.add_parser("recall")
+    sub.add_parser("uninstall")
     args = p.parse_args()
     if args.cmd == "notes":
         return cmd_notes(args)
     if args.cmd == "recall":
         return cmd_recall()
+    if args.cmd == "uninstall":
+        return cmd_uninstall()
     return cmd_capture()
 
 

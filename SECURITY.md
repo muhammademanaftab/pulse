@@ -14,16 +14,19 @@ each turn it stores, in your Convex deployment:
   `new_source` dropped at any depth, so the bodies of file writes and edits are not
   sent. Shell commands are sent as written, so a command that writes a file inline
   (a heredoc) includes that text
-- project name, working directory path, git user name, session id, timestamp, model
+- project name, working directory path, git user name, session id, timestamp, model,
+  and the tool the turn came from (`claude-code`)
 
 ## How it is protected
 
 - **Redaction.** Before anything leaves your machine, capture scrubs common secret
   shapes: private key blocks, passwords inside connection URLs, AWS / GitHub /
-  GitLab / Slack / Stripe / OpenAI-style keys, JWTs, `Bearer` and `Basic` headers,
-  `key=value` and `"key": "value"` assignments for api-key / token / secret /
-  password, and long hex runs (a 40-character git commit SHA is left alone).
-  Matches become `[REDACTED:<kind>]`.
+  GitLab / Slack (including webhook URLs) / Stripe / Google API / Hugging Face /
+  SendGrid / npm / Telegram bot / Linear / Shopify / PyPI / Docker Hub keys and
+  tokens, OpenAI-style keys, JWTs, `Bearer` and `Basic` headers, `key=value` and
+  `"key": "value"` assignments for api-key / token / secret / password, and long hex
+  runs (a 40-character git commit SHA is left alone). Matches become
+  `[REDACTED:<kind>]`.
 - **This is best-effort, not a guarantee.** Novel or unusual secret formats can slip
   through, and the patterns can occasionally redact harmless text that looks like a
   secret (a sha256 digest, a sentence like "password: correct-horse-battery"). Do not rely
@@ -40,6 +43,30 @@ each turn it stores, in your Convex deployment:
   and any `.env` or `*.jsonl` are gitignored and must never be committed.
 - **Size limits.** Fields are truncated before send and the backend rejects
   oversized bodies, so a single huge turn cannot wedge ingestion.
+
+## Exclude private folders
+
+Create `~/.pulse/ignore` as a UTF-8 text file, with one absolute folder path per
+line. `~` expands to your home folder. Blank lines and lines starting with `#`
+are ignored. Paths are literal, not glob patterns; do not add quotes.
+
+```
+~/work/private-client
+~/Personal Documents
+```
+
+On Windows, use full paths such as `C:\Users\YourName\Private` or `~/Private`.
+Each folder and its descendants are excluded. A name prefix alone does not
+match (`~/work` does not exclude `~/work-notes`). Paths are normalized and
+symlink aliases resolve to the same folder.
+
+The hook checks this list before accessing a transcript or sending an event.
+A skipped turn logs only the folder name, without any session content. A missing
+or empty list keeps capture enabled. If the list cannot be read, contains invalid
+UTF-8 or has a non-absolute path, capture is skipped until the list is fixed; the
+log records a generic configuration error. Changes to this file take effect on
+the next hook invocation. After upgrading Pulse, re-run capture setup to update
+the installed hook. Previously captured events and notes are not deleted.
 
 ## Unattended runs
 

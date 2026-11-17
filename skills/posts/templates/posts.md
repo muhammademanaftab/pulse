@@ -18,6 +18,14 @@ tags: [pulse, posts]
 
 2/ <second post>
 
+## Devlog
+
+<short title>
+
+<what changed and why, grounded in the notes>
+
+<next steps recorded in the notes, or say none are recorded>
+
 ## Sources
 
 Written from [[<weekly_note without .md>|Week ending <SUN_DAY>]].

@@ -2,9 +2,9 @@
 
 A memory layer for your work with Claude Code. It quietly remembers every session and turns it into a knowledge base you own.
 
-![Six months of Claude Code sessions, captured by Pulse and turned into a linked vault of daily and project notes](assets/graph.png)
+![A sample Pulse vault: six months of daily and project notes, shown as an Obsidian graph](assets/graph.png)
 
-*Every session becomes a linked note. Over months it builds a connected map of what you have built, shown here as an Obsidian graph.*
+*Every session becomes a linked note. Over months it builds a connected map of what you have built. This is a sample vault, shown as an Obsidian graph.*
 
 You finish a week of building and most of it is already gone. What did I ship on Tuesday? Why did I redo that whole feature? It is buried in old chat history you will never scroll through again.
 
@@ -62,9 +62,10 @@ Every other skill just reads those notes. These work today:
 - A **weekly recap** of what you got done.
 - A **page per project** that collects its decisions, bugs, rules and open items, and links every day you worked on it.
 - **Recall**: ask "when did I fix the alert bug?" or "why did we pick CSV?" from any project and get the answer with the date and the note it came from.
-- **Post drafts**: a LinkedIn post and an X thread about your week, written from your notes for you to review. Pulse never posts for you.
+- **Post drafts**: a LinkedIn post, an X thread and a devlog about your week, written from your notes for you to review. Pulse never posts for you.
+- **Standup**: a short Yesterday, Today and Blockers draft from your latest completed daily note. Run `skills/standup/SKILL.md` when you need a team update; it never sends the draft.
 
-More can follow the same pattern (a devlog, a brag document for a review): small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
+More can follow the same pattern (a brag document for a review): small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
 ## How it works
 
@@ -89,7 +90,8 @@ skills/
   digest/         writes the daily note
   projects/       keeps one page per project
   synth/          writes the weekly note
-  posts/          drafts a LinkedIn post and an X thread
+  posts/          drafts a LinkedIn post, an X thread and a devlog
+  standup/        drafts a team update from the latest completed daily note
   recall/         answers questions from your notes
   shared/         code and the writing guide the skills share
 routines/        instructions for the nightly and weekly cloud runs
@@ -130,6 +132,23 @@ python3 skills/setup/install.py recall                                # /pulse-r
 
 After setup, capture is on and every session is recorded.
 
+## Uninstall
+
+From this clone, run:
+
+```
+python3 skills/setup/install.py uninstall
+```
+
+This removes Pulse's Stop hook, the installed capture script and `/pulse-recall`.
+Other hooks are kept, and settings are backed up to `~/.claude/settings.json.bak`
+before any Pulse entries are removed. Running it again prints `nothing to remove`.
+
+Your credentials, config and logs in `~/.pulse/`, your Convex deployment and your
+notes repo are kept. To remove that data too, delete the local folders manually
+and delete the deployment in the Convex dashboard. Disable any cloud routines
+you configured separately.
+
 ## Where the notes live
 
 The digest writes into your notes repo, never into this one:
@@ -162,6 +181,9 @@ fill in.
 
 ## Configuration
 
+To exclude private folders from capture, list them in `~/.pulse/ignore`; see
+[Exclude private folders](SECURITY.md#exclude-private-folders) for the format.
+
 Setup writes `~/.pulse/config.yaml` for you from [`config.example.yaml`](config.example.yaml). Edit it to change:
 
 | Key | Meaning |
@@ -184,11 +206,11 @@ project name in your notes (`my-app-backend: My App`), and to list scratch folde
 
 ## Status
 
-Pulse is early (0.x). Capture, the daily note, project pages, the weekly recap, recall and post drafts work today. A devlog and a brag document are planned, not built yet. Expect rough edges and breaking changes until 1.0.
+Pulse is early (0.x). Capture, the daily note, project pages, the weekly recap, recall, the standup and post drafts (including a devlog) work today. A brag document is planned, not built yet. Expect rough edges and breaking changes until 1.0.
 
 ## Contributing
 
-PRs are welcome. Start with an issue labeled [good first issue](https://github.com/muhammademanaftab/pulse/labels/good%20first%20issue), and read [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the tests and the house rules. Questions and ideas go in [Discussions](https://github.com/muhammademanaftab/pulse/discussions).
+PRs are welcome. Start with an issue labeled [good first issue](https://github.com/muhammademanaftab/pulse/labels/good%20first%20issue), and read [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the tests and the house rules. The plan for Codex CLI and Cursor support is in the [roadmap](https://github.com/muhammademanaftab/pulse/issues/61), where help counts most. Questions and ideas go in [Discussions](https://github.com/muhammademanaftab/pulse/discussions).
 
 ## License
 
