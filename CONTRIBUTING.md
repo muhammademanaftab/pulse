@@ -11,7 +11,9 @@ house rules a PR is reviewed against. Everyone taking part is expected to follow
   are scoped to one file and come with a hint on where to start.
 - Issues labeled [help wanted](https://github.com/muhammademanaftab/pulse/labels/help%20wanted)
   are bigger, often a new skill.
-- Comment on an issue before you start so two people do not build the same thing.
+- Comment on an issue before you start. The first person to comment is assigned, and
+  an assigned issue is taken. This stops two people building the same thing.
+- Keep to two open PRs at a time, so reviews stay quick and others get a turn.
 - For a new idea, open an issue or a discussion first, so we can agree on the shape
   before you write code.
 
