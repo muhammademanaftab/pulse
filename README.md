@@ -206,11 +206,11 @@ project name in your notes (`my-app-backend: My App`), and to list scratch folde
 
 ## Status
 
-Pulse is early (0.x). Capture, the daily note, project pages, the weekly recap, recall and post drafts (including a devlog) work today. A brag document is planned, not built yet. Expect rough edges and breaking changes until 1.0.
+Pulse is early (0.x). Capture, the daily note, project pages, the weekly recap, recall, the standup and post drafts (including a devlog) work today. A brag document is planned, not built yet. Expect rough edges and breaking changes until 1.0.
 
 ## Contributing
 
-PRs are welcome. Start with an issue labeled [good first issue](https://github.com/muhammademanaftab/pulse/labels/good%20first%20issue), and read [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the tests and the house rules. Questions and ideas go in [Discussions](https://github.com/muhammademanaftab/pulse/discussions).
+PRs are welcome. Start with an issue labeled [good first issue](https://github.com/muhammademanaftab/pulse/labels/good%20first%20issue), and read [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the tests and the house rules. The plan for Codex CLI and Cursor support is in the [roadmap](https://github.com/muhammademanaftab/pulse/issues/61), where help counts most. Questions and ideas go in [Discussions](https://github.com/muhammademanaftab/pulse/discussions).
 
 ## License
 
