@@ -162,6 +162,9 @@ fill in.
 
 ## Configuration
 
+To exclude private folders from capture, list them in `~/.pulse/ignore`; see
+[Exclude private folders](SECURITY.md#exclude-private-folders) for the format.
+
 Setup writes `~/.pulse/config.yaml` for you from [`config.example.yaml`](config.example.yaml). Edit it to change:
 
 | Key | Meaning |

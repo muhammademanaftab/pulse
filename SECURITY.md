@@ -42,6 +42,30 @@ each turn it stores, in your Convex deployment:
 - **Size limits.** Fields are truncated before send and the backend rejects
   oversized bodies, so a single huge turn cannot wedge ingestion.
 
+## Exclude private folders
+
+Create `~/.pulse/ignore` as a UTF-8 text file, with one absolute folder path per
+line. `~` expands to your home folder. Blank lines and lines starting with `#`
+are ignored. Paths are literal, not glob patterns; do not add quotes.
+
+```
+~/work/private-client
+~/Personal Documents
+```
+
+On Windows, use full paths such as `C:\Users\YourName\Private` or `~/Private`.
+Each folder and its descendants are excluded. A name prefix alone does not
+match (`~/work` does not exclude `~/work-notes`). Paths are normalized and
+symlink aliases resolve to the same folder.
+
+The hook checks this list before accessing a transcript or sending an event.
+A skipped turn logs only the folder name, without any session content. A missing
+or empty list keeps capture enabled. If the list cannot be read, contains invalid
+UTF-8 or has a non-absolute path, capture is skipped until the list is fixed; the
+log records a generic configuration error. Changes to this file take effect on
+the next hook invocation. After upgrading Pulse, re-run capture setup to update
+the installed hook. Previously captured events and notes are not deleted.
+
 ## Unattended runs
 
 The nightly digest, the weekly synth and the weekly post drafts run unattended with
