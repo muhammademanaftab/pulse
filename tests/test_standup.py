@@ -155,6 +155,9 @@ def test_cli_success_errors_and_utf8():
         path = write_note(root, "2026-06-02", GOOD.replace("Web App", "Caf\u00e9"))
         env = {**os.environ, "NOTES_REPO": root, "PULSE_HOME": root,
                "PULSE_VAULT_SUBFOLDER": "", "PULSE_TZ": "UTC", "PYTHONIOENCODING": "cp1252"}
+        if sys.version_info < (3, 10):
+            env["PYTHONWARNINGS"] = ",".join(rule for rule in env.get("PYTHONWARNINGS", "").split(",")
+                                             if rule != "error::EncodingWarning")
         def run(*args):
             return subprocess.run([sys.executable, SCRIPT, *args], env=env, capture_output=True)
         result = run("collect", "--date", "2026-06-02")
