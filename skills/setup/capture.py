@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 """Pulse capture hook (L0).
 
-Runs as a Claude Code `Stop` hook. Reads the session transcript, extracts the
-last real user prompt and the assistant's response, and POSTs one
-schema-compliant event to the user's Convex deployment at `{CONVEX_URL}/ingest`.
+Runs when a coding tool finishes a turn (for Claude Code, as a `Stop` hook) and
+POSTs one event to the user's Convex deployment at `{CONVEX_URL}/ingest`.
+
+It has two parts. An adapter knows one tool: it reads that tool's hook input and
+returns the turn (prompt, response, model, session_id). The core knows no tool:
+it skips ignored folders, redacts, truncates, builds the event and sends it. An
+adapter never sends anything, so every turn goes through the same redaction.
+
+The hook command picks the adapter with `--source <name>`; without it the source
+is `claude-code`. To support another tool, write its two functions (the folder of
+a hook input, and the turn of a hook input), add them to `ADAPTERS`, and add a
+fake hook input for it to `HOOK_INPUTS` in tests/test_capture.py. The folder
+function must use the hook input only: it runs before the ignore list is checked,
+so it must not open the session.
 
 Credentials live in `~/.pulse/.env` (written by skills/setup/install.py):
 
@@ -27,9 +38,11 @@ from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 
 ENV_FILE = os.path.expanduser("~/.pulse/.env")
+IGNORE_FILE = os.path.expanduser("~/.pulse/ignore")
 LOG_FILE = os.path.expanduser("~/.pulse/capture.log")
 MAX_LOG_BYTES = 5 * 1024 * 1024
 MAX_FIELD_CHARS = 100_000
+DEFAULT_SOURCE = "claude-code"
 
 FILTERED_TOOL_FIELDS = {"content", "old_string", "new_string", "new_source"}
 COMMAND_NAME_RE = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>")
@@ -65,7 +78,8 @@ REDACT_PATTERNS = (
         r"\b(?:glpat-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{35}|hf_[A-Za-z0-9]{30,}"
         r"|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"
         r"|npm_[A-Za-z0-9]{36}\b|[0-9]{6,}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])"
-        r"|lin_api_[A-Za-z0-9]{40}\b|shp(?:at|ca|pa)_[A-Za-z0-9]{32}\b)")),
+        r"|lin_api_[A-Za-z0-9]{40}\b|shp(?:at|ca|pa)_[A-Za-z0-9]{32}\b"
+        r"|pypi-[A-Za-z0-9_-]{85,}|dckr_pat_[A-Za-z0-9_-]{27}(?![A-Za-z0-9_-]))")),
     ("bearer", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.I)),
     ("basic-auth", re.compile(r"\bBasic\s+[A-Za-z0-9+/]{16,}={0,2}")),
     ("assignment", re.compile(
@@ -112,6 +126,43 @@ def log(msg: str) -> None:
             f.write(f"[{datetime.now(timezone.utc).isoformat()}] {msg}\n")
     except Exception:
         pass
+
+
+def normalized_folder(folder: str) -> str:
+    if not isinstance(folder, str) or not folder or "\0" in folder:
+        raise ValueError("folder must be a nonempty path without null bytes")
+    expanded = os.path.expanduser(folder)
+    if not os.path.isabs(expanded):
+        raise ValueError("folder must be an absolute path")
+    return os.path.normcase(os.path.realpath(expanded))
+
+
+def is_ignored_folder(cwd: str) -> bool:
+    try:
+        try:
+            with open(IGNORE_FILE, encoding="utf-8") as f:
+                folders = [line.strip() for line in f
+                           if line.strip() and not line.lstrip().startswith("#")]
+        except FileNotFoundError:
+            if not os.path.lexists(IGNORE_FILE):
+                return False
+            raise
+        if not folders:
+            return False
+        current = normalized_folder(cwd)
+        ignored = [normalized_folder(folder) for folder in folders]
+        for folder in ignored:
+            try:
+                matches = os.path.commonpath((current, folder)) == folder
+            except ValueError:
+                continue
+            if matches:
+                log(f"skipping ignored folder: {os.path.basename(current) or current!r}")
+                return True
+    except (OSError, ValueError):
+        log("capture skipped: could not read or validate ~/.pulse/ignore")
+        return True
+    return False
 
 
 def load_env() -> tuple[str | None, str | None]:
@@ -322,7 +373,65 @@ def post_event(url: str, token: str, payload: dict) -> None:
         )
 
 
-def main() -> None:
+def claude_code_folder(hook_input: dict) -> str:
+    return hook_input.get("cwd", os.getcwd())
+
+
+def claude_code_turn(hook_input: dict) -> dict | None:
+    transcript_path = hook_input.get("transcript_path", "")
+    if not transcript_path or not os.path.isfile(transcript_path):
+        log(f"transcript not found: {transcript_path}")
+        return None
+    prompt, response, model = extract_from_transcript(transcript_path)
+    if not prompt:
+        log("no real user prompt found, skipping")
+        return None
+    return {"prompt": prompt, "response": response or "", "model": model,
+            "session_id": hook_input.get("session_id", "")}
+
+
+ADAPTERS = {
+    "claude-code": (claude_code_folder, claude_code_turn),
+}
+
+
+def build_event(source: str, cwd: str, turn: dict) -> dict:
+    project, username = get_git_info(cwd)
+    return {
+        "username": username,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_id": make_event_id(turn["session_id"], turn["prompt"], turn["response"]),
+        "message": truncate(redact(turn["prompt"])),
+        "response": truncate(redact(turn["response"])),
+        "project": project,
+        "project_path": cwd,
+        "session_id": turn["session_id"],
+        "model": turn.get("model") or "unknown",
+        "source": source,
+    }
+
+
+def capture(source: str, hook_input: dict) -> dict | None:
+    """The event for one hook input, or None when there is nothing to send. The
+    ignore list is checked before the adapter reads anything from the session."""
+    folder_of, turn_of = ADAPTERS[source]
+    cwd = folder_of(hook_input)
+    if is_ignored_folder(cwd):
+        return None
+    turn = turn_of(hook_input)
+    return build_event(source, cwd, turn) if turn else None
+
+
+def source_arg(argv: list[str]) -> str:
+    for i, arg in enumerate(argv):
+        if arg == "--source":
+            return argv[i + 1] if i + 1 < len(argv) else ""
+        if arg.startswith("--source="):
+            return arg[len("--source="):]
+    return DEFAULT_SOURCE
+
+
+def main(argv: list[str] | None = None) -> None:
     url, token = load_env()
     if not url or not token:
         if os.path.isfile(ENV_FILE):
@@ -339,31 +448,14 @@ def main() -> None:
         log("stdin is not a JSON object, skipping")
         return
 
-    session_id = hook_input.get("session_id", "")
-    transcript_path = hook_input.get("transcript_path", "")
-    cwd = hook_input.get("cwd", os.getcwd())
-
-    if not transcript_path or not os.path.isfile(transcript_path):
-        log(f"transcript not found: {transcript_path}")
+    source = source_arg(argv or [])
+    if source not in ADAPTERS:
+        log(f"unknown source {source!r}, skipping (known: {', '.join(sorted(ADAPTERS))})")
         return
 
-    prompt, response, model = extract_from_transcript(transcript_path)
-    if not prompt:
-        log("no real user prompt found, skipping")
+    payload = capture(source, hook_input)
+    if payload is None:
         return
-
-    project, username = get_git_info(cwd)
-    payload = {
-        "username": username,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "event_id": make_event_id(session_id, prompt, response or ""),
-        "message": truncate(redact(prompt)),
-        "response": truncate(redact(response or "")),
-        "project": project,
-        "project_path": cwd,
-        "session_id": session_id,
-        "model": model or "unknown",
-    }
 
     try:
         post_event(url, token, payload)
@@ -373,7 +465,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     try:
-        main()
+        main(sys.argv[1:])
     except Exception as e:
         log(f"fatal: {e}")
     sys.exit(0)

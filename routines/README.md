@@ -35,8 +35,8 @@ unused).
 For the **weekly post drafts**, create a third routine the same way: `Name` =
 `Pulse Post Drafts`, `Instructions` = the fenced block in [posts.md](posts.md), and
 `Trigger` = weekly, an hour or so after the synth, because it reads the weekly note
-the synth writes. It writes LinkedIn, X and devlog drafts in one file in your notes repo; it has no access
-to LinkedIn or X and never posts.
+the synth writes. It writes LinkedIn, X and devlog drafts in one file in your notes
+repo; it has no access to LinkedIn or X and never posts.
 
 ## The `pulse` cloud environment
 

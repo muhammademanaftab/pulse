@@ -1,7 +1,8 @@
 # Posts
 
-Drafts a LinkedIn post, an X thread and a devlog about last week from your weekly note and
-pushes the drafts file to your notes repo, once a week, with your machine off.
+Drafts a LinkedIn post, an X thread and a devlog about last week from your weekly
+note and pushes the drafts file to your notes repo, once a week, with your machine
+off.
 Create it per [README.md](README.md) (Name, Model, repos, the `pulse` environment,
 permissions). Trigger: weekly, after the synth routine has run (for example an
 hour later on Monday morning) in `PULSE_TZ`.

@@ -63,6 +63,7 @@ Every other skill just reads those notes. These work today:
 - A **page per project** that collects its decisions, bugs, rules and open items, and links every day you worked on it.
 - **Recall**: ask "when did I fix the alert bug?" or "why did we pick CSV?" from any project and get the answer with the date and the note it came from.
 - **Post drafts**: a LinkedIn post, an X thread and a devlog about your week, written from your notes for you to review. Pulse never posts for you.
+- **Standup**: a short Yesterday, Today and Blockers draft from your latest completed daily note. Run `skills/standup/SKILL.md` when you need a team update; it never sends the draft.
 
 More can follow the same pattern (a brag document for a review): small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
@@ -90,6 +91,7 @@ skills/
   projects/       keeps one page per project
   synth/          writes the weekly note
   posts/          drafts a LinkedIn post, an X thread and a devlog
+  standup/        drafts a team update from the latest completed daily note
   recall/         answers questions from your notes
   shared/         code and the writing guide the skills share
 routines/        instructions for the nightly and weekly cloud runs
@@ -130,6 +132,23 @@ python3 skills/setup/install.py recall                                # /pulse-r
 
 After setup, capture is on and every session is recorded.
 
+## Uninstall
+
+From this clone, run:
+
+```
+python3 skills/setup/install.py uninstall
+```
+
+This removes Pulse's Stop hook, the installed capture script and `/pulse-recall`.
+Other hooks are kept, and settings are backed up to `~/.claude/settings.json.bak`
+before any Pulse entries are removed. Running it again prints `nothing to remove`.
+
+Your credentials, config and logs in `~/.pulse/`, your Convex deployment and your
+notes repo are kept. To remove that data too, delete the local folders manually
+and delete the deployment in the Convex dashboard. Disable any cloud routines
+you configured separately.
+
 ## Where the notes live
 
 The digest writes into your notes repo, never into this one:
@@ -161,6 +180,9 @@ routines and work with your machine off. See [routines/](routines/) for the rout
 fill in.
 
 ## Configuration
+
+To exclude private folders from capture, list them in `~/.pulse/ignore`; see
+[Exclude private folders](SECURITY.md#exclude-private-folders) for the format.
 
 Setup writes `~/.pulse/config.yaml` for you from [`config.example.yaml`](config.example.yaml). Edit it to change:
 

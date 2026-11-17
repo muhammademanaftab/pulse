@@ -96,6 +96,7 @@ http.route({
             ? body.sessionId
             : "",
       model: body.model ?? undefined,
+      source: typeof body.source === "string" ? body.source.slice(0, 64) : undefined,
     });
 
     return new Response(JSON.stringify({ ok: true, id }), {
