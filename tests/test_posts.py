@@ -41,6 +41,15 @@ The cause was two workers picking up the same job.
 
 2/ Cause: two workers took the same job. Fix: one lock per job.
 
+## Devlog
+
+Fixing missing alerts
+
+I added a lock per job because two workers could pick up the same alert.
+The change prevents them from overwriting each other's result.
+
+Next I plan to check the retry path.
+
 ## Sources
 
 Written from [[Pulse/Weekly/2026-06/2026-06-14|Week of Jun 14]].
@@ -108,7 +117,8 @@ def test_more_markdown_hype_and_hashtag_cases():
 
 def test_quiet_week_form_passes():
     quiet = DRAFT[:DRAFT.index("Some of our")] + "No post this week: only dependency bumps.\n\n## X\n\n" \
-        "1/ No post this week.\n\n" + DRAFT[DRAFT.index("## Sources"):]
+        "1/ No post this week.\n\n## Devlog\n\nNo devlog this week: only dependency bumps.\n\n" \
+        + DRAFT[DRAFT.index("## Sources"):]
     assert po.lint_post(quiet) == [], po.lint_post(quiet)
 
 
@@ -141,9 +151,33 @@ def test_dash_banned_phrase_hashtags_and_status():
 def test_sections_exact_and_not_empty():
     fails(DRAFT.replace("## X", "## Twitter"), "sections must be exactly")
     fails(DRAFT + "\n## Notes\n\nx\n", "sections must be exactly")
-    empty = DRAFT[:DRAFT.index("## LinkedIn")] + "## LinkedIn\n\n## X\n\n## Sources\n\n[[x]]\n"
+    empty = DRAFT[:DRAFT.index("## LinkedIn")] + "## LinkedIn\n\n## X\n\n" + DRAFT[DRAFT.index("## Devlog"):]
     fails(empty, "## LinkedIn is empty")
     fails(empty, "## X is empty")
+
+
+def test_devlog_is_required_and_cannot_be_empty_or_reordered():
+    before = DRAFT[:DRAFT.index("## Devlog")]
+    after = DRAFT[DRAFT.index("## Sources"):]
+    fails(before + after, "sections must be exactly")
+    fails(before + "## Devlog\n\n" + after, "## Devlog is empty")
+    fails(before + after + "\n## Devlog\n\nFixed alerts.\n", "sections must be exactly")
+    fails(DRAFT.replace("Fixing missing alerts", "## Changes\n\nFixing missing alerts"), "sections must be exactly")
+
+
+def test_devlog_allows_markdown_and_has_no_social_post_length_limit():
+    body = "Fixing missing alerts\n\n- I added **one lock** before `send()`.\n\n" + "The retry path is next. " * 160
+    draft = DRAFT[:DRAFT.index("## Devlog")] + "## Devlog\n\n" + body + "\n\n" + DRAFT[DRAFT.index("## Sources"):]
+    assert len(body) > 3000
+    assert po.lint_post(draft) == [], po.lint_post(draft)
+
+
+def test_devlog_rejects_placeholders_hype_and_banned_style():
+    for text, error in (("<short title>", "## Devlog still has template placeholder"),
+                        ("Excited to share a fix", "## Devlog uses a phrase post-style.md bans"),
+                        ("After leveraging logs", "AI-tell phrase"),
+                        ("Alerts\u2014fixed", "em/en dash")):
+        fails(DRAFT.replace("Fixing missing alerts", text), error)
 
 
 def vault() -> str:
