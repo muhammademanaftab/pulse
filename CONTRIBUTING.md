@@ -2,7 +2,8 @@
 
 Thanks for helping. Pulse is small on purpose, so most changes are a few lines plus a
 test. This page covers how to find something to work on, how to run the tests, and the
-house rules a PR is reviewed against.
+house rules a PR is reviewed against. Everyone taking part is expected to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Find something to work on
 
