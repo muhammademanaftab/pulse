@@ -12,7 +12,9 @@ adapter never sends anything, so every turn goes through the same redaction.
 The hook command picks the adapter with `--source <name>`; without it the source
 is `claude-code`. To support another tool, write its two functions (the folder of
 a hook input, and the turn of a hook input), add them to `ADAPTERS`, and add a
-fake hook input for it to `HOOK_INPUTS` in tests/test_capture.py.
+fake hook input for it to `HOOK_INPUTS` in tests/test_capture.py. The folder
+function must use the hook input only: it runs before the ignore list is checked,
+so it must not open the session.
 
 Credentials live in `~/.pulse/.env` (written by skills/setup/install.py):
 
@@ -420,10 +422,12 @@ def capture(source: str, hook_input: dict) -> dict | None:
 
 
 def source_arg(argv: list[str]) -> str:
-    if "--source" not in argv:
-        return DEFAULT_SOURCE
-    rest = argv[argv.index("--source") + 1:]
-    return rest[0] if rest else ""
+    for i, arg in enumerate(argv):
+        if arg == "--source":
+            return argv[i + 1] if i + 1 < len(argv) else ""
+        if arg.startswith("--source="):
+            return arg[len("--source="):]
+    return DEFAULT_SOURCE
 
 
 def main(argv: list[str] | None = None) -> None:

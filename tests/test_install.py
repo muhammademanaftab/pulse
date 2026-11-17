@@ -73,13 +73,14 @@ def test_install_hook_on_a_fresh_machine_and_again():
         install_hook()
         assert Path(setup.HOOK_DEST).is_file()
         assert stop_commands() == [setup.HOOK_COMMAND]
+        assert not Path(setup.LEGACY_HOOK).exists()
         before = Path(setup.SETTINGS).read_bytes()
         assert "no change" in install_hook()
         assert Path(setup.SETTINGS).read_bytes() == before
         assert stop_commands() == [setup.HOOK_COMMAND]
 
 
-def test_install_hook_moves_an_older_install_to_the_shared_copy():
+def test_install_hook_upgrades_an_older_install_and_keeps_its_copy_working():
     for legacy in ("python3 ~/.claude/hooks/pulse-capture.py || true",
                    '"C:/Python/python.exe" "C:/Users/A B/.claude/hooks/pulse-capture.py" || true'):
         with installation():
@@ -92,8 +93,9 @@ def test_install_hook_moves_an_older_install_to_the_shared_copy():
             write(neighbor, "keep this")
             install_hook()
             assert stop_commands() == [setup.HOOK_COMMAND, "notify"]
-            assert Path(setup.HOOK_DEST).is_file()
-            assert not Path(setup.LEGACY_HOOK).exists()
+            script = (REPO / "skills" / "setup" / "capture.py").read_bytes()
+            assert Path(setup.HOOK_DEST).read_bytes() == script
+            assert Path(setup.LEGACY_HOOK).read_bytes() == script
             assert neighbor.read_text(encoding="utf-8") == "keep this"
             assert Path(setup.SETTINGS + ".bak").read_text(encoding="utf-8") == original
             settings = json.loads(Path(setup.SETTINGS).read_text(encoding="utf-8"))
@@ -169,6 +171,7 @@ def test_uninstall_twice_changes_nothing_the_second_time():
         write(setup.SETTINGS, original)
         write(setup.HOOK_DEST, "synthetic capture script")
         uninstall()
+        assert not Path(setup.HOOKS_DIR).exists()
         paths = [Path(setup.SETTINGS), Path(setup.SETTINGS + ".bak")]
         before = [(p.read_bytes(), p.stat().st_mtime_ns) for p in paths]
         assert "nothing to remove" in uninstall()

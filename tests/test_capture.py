@@ -15,6 +15,8 @@ import io
 import json
 import ntpath
 import os
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -500,7 +502,7 @@ def test_every_adapter_returns_the_same_event_and_is_redacted():
             assert "[REDACTED:token]" in event[field], (source, field, event[field])
 
 
-def test_core_checks_the_ignore_list_before_an_adapter_reads_anything():
+def test_core_checks_the_ignore_list_before_an_adapter_reads_the_turn():
     with tempfile.TemporaryDirectory() as root:
         ignore = os.path.join(root, "ignore")
         with open(ignore, "w", encoding="utf-8") as f:
@@ -523,11 +525,43 @@ def test_adapter_without_a_turn_sends_nothing():
             git.assert_not_called()
 
 
+def test_event_carries_the_source_it_was_captured_with():
+    with tempfile.TemporaryDirectory() as root:
+        turn = {"prompt": "fake prompt", "response": "", "model": None, "session_id": "fake"}
+        fake = (lambda hook_input: root, lambda hook_input: turn)
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                patch.dict(cap.ADAPTERS, {"fake": fake}), \
+                patch.object(cap, "get_git_info", return_value=("project", "user")):
+            event = cap.capture("fake", {})
+    assert event["source"] == "fake" and event["model"] == "unknown", event
+    assert event["event_id"] == cap.make_event_id("fake", "fake prompt", ""), event
+
+
 def test_source_argument():
     assert cap.source_arg([]) == "claude-code"
     assert cap.source_arg(["--source", "codex"]) == "codex"
+    assert cap.source_arg(["--source=codex"]) == "codex"
     assert cap.source_arg(["--other", "--source", "cursor"]) == "cursor"
     assert cap.source_arg(["--source"]) == ""
+    assert cap.source_arg(["--source="]) == ""
+
+
+def test_hook_run_as_a_process_reads_its_source_and_stays_silent():
+    with tempfile.TemporaryDirectory() as home:
+        os.makedirs(os.path.join(home, ".pulse"))
+        with open(os.path.join(home, ".pulse", ".env"), "w", encoding="utf-8") as f:
+            f.write("CONVEX_URL=https://example.invalid\nCONVEX_TOKEN=fake\n")
+        env = {**os.environ, "HOME": home, "USERPROFILE": home}
+        if sys.version_info < (3, 10):
+            env.pop("PYTHONWARNINGS", None)
+        script = os.path.join(REPO, "skills", "setup", "capture.py")
+        for argv in (["--source", "nope"], ["--source=nope"]):
+            result = subprocess.run([sys.executable, script, *argv], input=b"{}", env=env,
+                                    capture_output=True, timeout=30)
+            assert (result.returncode, result.stdout, result.stderr) == (0, b"", b""), result
+        with open(os.path.join(home, ".pulse", "capture.log"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        assert len(lines) == 2 and all("unknown source 'nope'" in line for line in lines), lines
 
 
 def run_main(hook: dict, argv=None):
@@ -560,7 +594,7 @@ def test_unknown_source_sends_nothing_and_says_so():
             assert "unknown source" in logged.call_args.args[0], logged.call_args
 
 
-def test_event_id_does_not_change_with_the_refactor():
+def test_event_id_formula_is_pinned_and_uses_the_unredacted_turn():
     assert cap.make_event_id("fake-session", "first prompt", "first answer") == \
         "d892bdc5927022dc11b56c4ac4aa4643"
     with tempfile.TemporaryDirectory() as root:

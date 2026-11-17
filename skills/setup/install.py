@@ -169,9 +169,10 @@ def install_hook() -> None:
         stop.append({"matcher": "", "hooks": [
             {"type": "command", "command": HOOK_COMMAND, "timeout": 30}]})
         print(f"   added the Stop hook to {SETTINGS}{save_settings(settings)}")
-    if os.path.lexists(LEGACY_HOOK):
-        os.unlink(LEGACY_HOOK)
-        print(f"   removed the older copy at {LEGACY_HOOK}")
+    if os.path.isfile(LEGACY_HOOK) and not os.path.islink(LEGACY_HOOK):
+        shutil.copy(os.path.join(HERE, "capture.py"), LEGACY_HOOK)
+        print(f"   refreshed the older copy at {LEGACY_HOOK} (other settings files may still "
+              "point at it; `install.py uninstall` removes it)")
 
 
 def verify(url: str, token: str) -> None:
