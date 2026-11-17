@@ -11,9 +11,13 @@ Claude Code's transcript shape) and the redaction / truncation pass.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
+import ntpath
 import os
 import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 spec = importlib.util.spec_from_file_location(
@@ -342,6 +346,127 @@ def test_event_id_stable_across_refires():
 def test_clean_text_passthrough():
     clean = "Refactored the parser and added a test for project foo."
     assert cap.redact(clean) == clean
+
+
+def test_ignored_folder_matches_itself_and_descendants_only():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        private = os.path.join(root, "work")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write("# Private projects\n\n" + private + os.sep + "\n")
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"):
+            assert cap.is_ignored_folder(private)
+            assert cap.is_ignored_folder(os.path.join(private, "project", "nested"))
+            assert not cap.is_ignored_folder(private + "-notes")
+            assert not cap.is_ignored_folder(root)
+
+
+def test_ignored_folder_expands_home_and_normalizes_parent_segments():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write("~/private project\n")
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"), \
+                patch.object(cap.os.path, "expanduser", side_effect=lambda p:
+                             os.path.join(root, p[2:]) if p.startswith("~/") else p):
+            assert cap.is_ignored_folder(os.path.join(root, "private project", "child", ".."))
+            assert not cap.is_ignored_folder(os.path.join(root, "public"))
+
+
+def test_ignored_folder_windows_paths_and_different_drives():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write("D:\\Private\nC:\\Users\\Example\\Work\n")
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"), \
+                patch.object(cap, "os", SimpleNamespace(path=ntpath)):
+            assert cap.is_ignored_folder("c:/users/example/WORK/project")
+            assert cap.is_ignored_folder("D:/PRIVATE")
+            assert not cap.is_ignored_folder("C:/Users/Example/Work-notes")
+            assert not cap.is_ignored_folder("E:/Private")
+
+
+def test_ignored_folder_resolves_symlink_aliases():
+    with tempfile.TemporaryDirectory() as root:
+        private = os.path.join(root, "private")
+        alias = os.path.join(root, "alias")
+        os.mkdir(private)
+        try:
+            os.symlink(private, alias, target_is_directory=True)
+        except OSError:
+            if os.name == "nt":
+                return
+            raise
+        ignore = os.path.join(root, "ignore")
+        for listed, cwd in ((private, alias), (alias, private)):
+            with open(ignore, "w", encoding="utf-8") as f:
+                f.write(listed + "\n")
+            with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"):
+                assert cap.is_ignored_folder(cwd)
+                assert cap.is_ignored_folder(os.path.join(cwd, "child"))
+
+
+def test_missing_or_empty_ignore_list_allows_capture():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log") as logged:
+            assert not cap.is_ignored_folder(root)
+            for text in ("", "\n  # comment\n\n"):
+                with open(ignore, "w", encoding="utf-8") as f:
+                    f.write(text)
+                assert not cap.is_ignored_folder(root)
+            logged.assert_not_called()
+
+
+def test_invalid_ignore_list_skips_capture_without_echoing_contents():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        for content in (b"relative/private", b"\xff", b"/private\x00folder"):
+            with open(ignore, "wb") as f:
+                f.write(content)
+            with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log") as logged:
+                assert cap.is_ignored_folder(root)
+                logged.assert_called_once_with("capture skipped: could not read or validate ~/.pulse/ignore")
+        with patch.object(cap, "IGNORE_FILE", root), patch.object(cap, "log"):
+            assert cap.is_ignored_folder(root)
+
+
+def test_ignored_turn_never_reads_transcript_or_sends_event():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write(root + "\n")
+        hook = {"cwd": root, "session_id": "not-for-log", "transcript_path": "not-for-log.jsonl"}
+        with patch.object(cap, "IGNORE_FILE", ignore), \
+                patch.object(cap, "load_env", return_value=("https://example.invalid", "fake")), \
+                patch.object(cap, "sys", SimpleNamespace(stdin=SimpleNamespace(
+                    buffer=io.BytesIO(json.dumps(hook).encode("utf-8"))))), \
+                patch.object(cap, "extract_from_transcript") as extract, \
+                patch.object(cap, "post_event") as post, \
+                patch.object(cap, "get_git_info") as git, patch.object(cap, "log") as logged:
+            cap.main()
+            extract.assert_not_called()
+            post.assert_not_called()
+            git.assert_not_called()
+            logged.assert_called_once_with(f"skipping ignored folder: {os.path.basename(root)!r}")
+
+
+def test_unlisted_turn_still_captures():
+    with tempfile.TemporaryDirectory() as root:
+        transcript = os.path.join(root, "transcript.jsonl")
+        with open(transcript, "w", encoding="utf-8") as f:
+            f.write(json.dumps(user("synthetic prompt")) + "\n")
+            f.write(json.dumps(assistant([{"type": "text", "text": "synthetic reply"}])) + "\n")
+        hook = {"cwd": root, "session_id": "fake-session", "transcript_path": transcript}
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                patch.object(cap, "load_env", return_value=("https://example.invalid", "fake")), \
+                patch.object(cap, "sys", SimpleNamespace(stdin=SimpleNamespace(
+                    buffer=io.BytesIO(json.dumps(hook).encode("utf-8"))))), \
+                patch.object(cap, "get_git_info", return_value=("project", "user")), \
+                patch.object(cap, "post_event") as post:
+            cap.main()
+            post.assert_called_once()
+            assert post.call_args.args[2]["message"] == "synthetic prompt"
 
 
 def test_truncation():

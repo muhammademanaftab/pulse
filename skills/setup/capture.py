@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 
 ENV_FILE = os.path.expanduser("~/.pulse/.env")
+IGNORE_FILE = os.path.expanduser("~/.pulse/ignore")
 LOG_FILE = os.path.expanduser("~/.pulse/capture.log")
 MAX_LOG_BYTES = 5 * 1024 * 1024
 MAX_FIELD_CHARS = 100_000
@@ -112,6 +113,43 @@ def log(msg: str) -> None:
             f.write(f"[{datetime.now(timezone.utc).isoformat()}] {msg}\n")
     except Exception:
         pass
+
+
+def normalized_folder(folder: str) -> str:
+    if not isinstance(folder, str) or not folder or "\0" in folder:
+        raise ValueError("folder must be a nonempty path without null bytes")
+    expanded = os.path.expanduser(folder)
+    if not os.path.isabs(expanded):
+        raise ValueError("folder must be an absolute path")
+    return os.path.normcase(os.path.realpath(expanded))
+
+
+def is_ignored_folder(cwd: str) -> bool:
+    try:
+        try:
+            with open(IGNORE_FILE, encoding="utf-8") as f:
+                folders = [line.strip() for line in f
+                           if line.strip() and not line.lstrip().startswith("#")]
+        except FileNotFoundError:
+            if not os.path.lexists(IGNORE_FILE):
+                return False
+            raise
+        if not folders:
+            return False
+        current = normalized_folder(cwd)
+        ignored = [normalized_folder(folder) for folder in folders]
+        for folder in ignored:
+            try:
+                matches = os.path.commonpath((current, folder)) == folder
+            except ValueError:
+                continue
+            if matches:
+                log(f"skipping ignored folder: {os.path.basename(current) or current!r}")
+                return True
+    except (OSError, ValueError):
+        log("capture skipped: could not read or validate ~/.pulse/ignore")
+        return True
+    return False
 
 
 def load_env() -> tuple[str | None, str | None]:
@@ -342,6 +380,9 @@ def main() -> None:
     session_id = hook_input.get("session_id", "")
     transcript_path = hook_input.get("transcript_path", "")
     cwd = hook_input.get("cwd", os.getcwd())
+
+    if is_ignored_folder(cwd):
+        return
 
     if not transcript_path or not os.path.isfile(transcript_path):
         log(f"transcript not found: {transcript_path}")
