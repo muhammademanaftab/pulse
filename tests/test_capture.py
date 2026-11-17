@@ -201,6 +201,9 @@ def test_redaction_provider_tokens():
         "lin_api_" + "a1B2c3D4" * 5,
         "pypi-" + "AgEIcHlwaS5vcmc" + "a1B2c3D4" * 9,
         "dckr_pat_" + "a1B2c3D4" * 3 + "a1B",
+        "gsk_" + "a1B2" * 12,
+        "r8_" + "a1B2c3D4" * 4 + "a1B2c",
+        "pplx-" + "a1B2" * 12,
     ]
     samples.extend(prefix + "a1B2c3D4" * 4
                    for prefix in ("shpat_", "shpca_", "shppa_"))
@@ -219,6 +222,7 @@ def test_redaction_leaves_normal_numbers_and_colons():
         "npm_package_name and lin_api_examples are labels.",
         "pypi-package-name is just a package name.",
         "dckr_pat_short is not a token.",
+        "gsk_example is a harmless label.",
     ):
         assert cap.redact(text) == text, text
 
