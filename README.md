@@ -130,6 +130,23 @@ python3 skills/setup/install.py recall                                # /pulse-r
 
 After setup, capture is on and every session is recorded.
 
+## Uninstall
+
+From this clone, run:
+
+```
+python3 skills/setup/install.py uninstall
+```
+
+This removes Pulse's Stop hook, the installed capture script and `/pulse-recall`.
+Other hooks are kept, and settings are backed up to `~/.claude/settings.json.bak`
+before any Pulse entries are removed. Running it again prints `nothing to remove`.
+
+Your credentials, config and logs in `~/.pulse/`, your Convex deployment and your
+notes repo are kept. To remove that data too, delete the local folders manually
+and delete the deployment in the Convex dashboard. Disable any cloud routines
+you configured separately.
+
 ## Where the notes live
 
 The digest writes into your notes repo, never into this one:

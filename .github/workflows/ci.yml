@@ -78,6 +78,9 @@ jobs:
       - name: Capture parser and redaction tests
         run: python3 tests/test_capture.py
 
+      - name: Uninstall preserves other hooks and user data
+        run: python3 tests/test_install.py
+
       - name: Daily note structure, open loops, label folding tests
         run: python3 tests/test_digest.py
 
