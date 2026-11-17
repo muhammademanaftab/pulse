@@ -93,6 +93,9 @@ jobs:
       - name: Post writer tests
         run: python3 tests/test_posts.py
 
+      - name: Standup draft tests
+        run: python3 tests/test_standup.py
+
       - name: Link-rendering rule (existence-based)
         run: |
           set -e
