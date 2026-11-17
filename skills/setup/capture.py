@@ -74,7 +74,9 @@ REDACT_PATTERNS = (
         r"(?!['\"]?(?:process\.env|os\.environ|os\.getenv|\$\{?[A-Za-z_]|undefined\b|null\b|None\b"
         r"|\[REDACTED:))"
         r"['\"]?)[^\s'\"]{8,}", re.I)),
-    ("hex", re.compile(r"\b(?![a-f0-9]{40}\b)[a-fA-F0-9]{40,}\b")),
+    ("hex", re.compile(
+        r"(?:\b|(?<=_))(?![a-f0-9]{40}(?:\b|(?=_)))"
+        r"[a-fA-F0-9]{40,}(?:\b|(?=_))")),
 )
 
 
