@@ -323,6 +323,12 @@ def test_truncation():
     assert cap.truncate("short") == "short"
 
 
+
+def test_redaction_hex_next_to_underscores():
+    secret = "a1b2c3d4" * 8
+    assert cap.redact("dop_v1_" + secret) == "dop_v1_[REDACTED:hex]"
+    assert cap.redact(secret + "_suffix") == "[REDACTED:hex]_suffix"
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
