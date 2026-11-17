@@ -13,6 +13,7 @@ export const insert = internalMutation({
     projectPath: v.string(),
     sessionId: v.string(),
     model: v.optional(v.string()),
+    source: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const eventId = args.eventId;

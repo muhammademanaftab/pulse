@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for Pulse uninstall, using temporary installations only.
+"""Tests for Pulse hook install and uninstall, using temporary installations only.
 
     python3 tests/test_install.py
 """
@@ -28,8 +28,9 @@ def installation():
         claude = root / "a b" / ".claude"
         pulse = root / ".pulse"
         with patch.multiple(setup, CLAUDE_DIR=str(claude),
-                            HOOKS_DIR=str(claude / "hooks"),
-                            HOOK_DEST=str(claude / "hooks" / "pulse-capture.py"),
+                            HOOKS_DIR=str(pulse / "hooks"),
+                            HOOK_DEST=str(pulse / "hooks" / "pulse-capture.py"),
+                            LEGACY_HOOK=str(claude / "hooks" / "pulse-capture.py"),
                             SETTINGS=str(claude / "settings.json"),
                             PULSE_HOME=str(pulse), ENV_FILE=str(pulse / ".env"),
                             CONFIG_FILE=str(pulse / "config.yaml")):
@@ -49,8 +50,66 @@ def uninstall():
     return out.getvalue()
 
 
+def install_hook():
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        setup.install_hook()
+    return out.getvalue()
+
+
+def stop_commands():
+    settings = json.loads(Path(setup.SETTINGS).read_text(encoding="utf-8"))
+    return [h["command"] for group in settings["hooks"]["Stop"] for h in group["hooks"]]
+
+
+def test_hook_command_names_the_shared_copy_and_the_source():
+    assert "pulse-capture.py" in setup.HOOK_COMMAND, setup.HOOK_COMMAND
+    assert "/.pulse/hooks/" in setup.HOOK_COMMAND.replace("\\", "/"), setup.HOOK_COMMAND
+    assert "/.claude/" not in setup.HOOK_COMMAND.replace("\\", "/"), setup.HOOK_COMMAND
+    assert setup.HOOK_COMMAND.endswith(" --source claude-code || true"), setup.HOOK_COMMAND
+
+
+def test_install_hook_on_a_fresh_machine_and_again():
+    with installation():
+        install_hook()
+        assert Path(setup.HOOK_DEST).is_file()
+        assert stop_commands() == [setup.HOOK_COMMAND]
+        before = Path(setup.SETTINGS).read_bytes()
+        assert "no change" in install_hook()
+        assert Path(setup.SETTINGS).read_bytes() == before
+        assert stop_commands() == [setup.HOOK_COMMAND]
+
+
+def test_install_hook_moves_an_older_install_to_the_shared_copy():
+    for legacy in ("python3 ~/.claude/hooks/pulse-capture.py || true",
+                   '"C:/Python/python.exe" "C:/Users/A B/.claude/hooks/pulse-capture.py" || true'):
+        with installation():
+            other = {"type": "command", "command": "notify", "timeout": 17}
+            original = json.dumps({"theme": "dark", "hooks": {"Stop": [{"matcher": "", "hooks": [
+                {"type": "command", "command": legacy, "timeout": 30}, other]}]}})
+            write(setup.SETTINGS, original)
+            write(setup.LEGACY_HOOK, "synthetic capture script from an older install")
+            neighbor = Path(setup.LEGACY_HOOK).parent / "other.py"
+            write(neighbor, "keep this")
+            install_hook()
+            assert stop_commands() == [setup.HOOK_COMMAND, "notify"]
+            assert Path(setup.HOOK_DEST).is_file()
+            assert not Path(setup.LEGACY_HOOK).exists()
+            assert neighbor.read_text(encoding="utf-8") == "keep this"
+            assert Path(setup.SETTINGS + ".bak").read_text(encoding="utf-8") == original
+            settings = json.loads(Path(setup.SETTINGS).read_text(encoding="utf-8"))
+            assert settings["theme"] == "dark" and settings["hooks"]["Stop"][0]["hooks"][1] == other
+
+
+def test_installed_copy_is_the_capture_script_in_this_repo():
+    with installation():
+        install_hook()
+        source = REPO / "skills" / "setup" / "capture.py"
+        assert Path(setup.HOOK_DEST).read_bytes() == source.read_bytes()
+
+
 def test_uninstall_preserves_other_hooks_and_backs_up_settings():
     commands = (
+        setup.HOOK_COMMAND,
         "python3 ~/.claude/hooks/pulse-capture.py || true",
         '"C:/Python/python.exe" "C:/Users/A B/.claude/hooks/pulse-capture.py" || true',
     )
@@ -84,16 +143,19 @@ def test_uninstall_removes_installed_files_and_keeps_user_data():
     with installation() as root:
         recall = Path(setup.CLAUDE_DIR) / "skills" / "pulse-recall"
         write(setup.HOOK_DEST, "synthetic capture script")
+        write(setup.LEGACY_HOOK, "synthetic capture script from an older install")
         write(recall / "SKILL.md", "synthetic recall skill")
         write(recall / "nested" / "extra.txt", "installed extra")
         kept = [Path(setup.ENV_FILE), Path(setup.CONFIG_FILE),
                 Path(setup.PULSE_HOME) / "capture.log", root / "notes" / "note.md",
                 Path(setup.HOOKS_DIR) / "other.py",
+                Path(setup.LEGACY_HOOK).parent / "other.py",
                 Path(setup.CLAUDE_DIR) / "skills" / "other" / "SKILL.md"]
         for path in kept:
             write(path, "keep this")
         out = uninstall()
         assert not Path(setup.HOOK_DEST).exists()
+        assert not Path(setup.LEGACY_HOOK).exists()
         assert not recall.exists()
         assert not Path(setup.SETTINGS).exists()
         assert all(path.read_text(encoding="utf-8") == "keep this" for path in kept)

@@ -26,15 +26,16 @@ ENV_FILE = os.path.join(PULSE_HOME, ".env")
 CONFIG_FILE = os.path.join(PULSE_HOME, "config.yaml")
 CONFIG_EXAMPLE = os.path.join(REPO, "config.example.yaml")
 CLAUDE_DIR = os.path.expanduser("~/.claude")
-HOOKS_DIR = os.path.join(CLAUDE_DIR, "hooks")
+HOOKS_DIR = os.path.join(PULSE_HOME, "hooks")
 HOOK_DEST = os.path.join(HOOKS_DIR, "pulse-capture.py")
+LEGACY_HOOK = os.path.join(CLAUDE_DIR, "hooks", "pulse-capture.py")
 SETTINGS = os.path.join(CLAUDE_DIR, "settings.json")
 if os.name == "nt":
     _exe = getattr(sys, "_base_executable", None) or sys.executable
     _py, _hook = (p.replace("\\", "/") for p in (_exe, HOOK_DEST))
-    HOOK_COMMAND = f'"{_py}" "{_hook}" || true'
+    HOOK_COMMAND = f'"{_py}" "{_hook}" --source claude-code || true'
 else:
-    HOOK_COMMAND = 'python3 ~/.claude/hooks/pulse-capture.py || true'
+    HOOK_COMMAND = 'python3 ~/.pulse/hooks/pulse-capture.py --source claude-code || true'
 
 
 def die(msg: str) -> None:
@@ -130,6 +131,7 @@ def save_settings(settings: dict) -> str:
     backed_up = os.path.isfile(SETTINGS)
     if backed_up:
         shutil.copy(SETTINGS, SETTINGS + ".bak")
+    os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
     with open(SETTINGS, "w", encoding="utf-8", newline="\n") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
         f.write("\n")
@@ -167,6 +169,9 @@ def install_hook() -> None:
         stop.append({"matcher": "", "hooks": [
             {"type": "command", "command": HOOK_COMMAND, "timeout": 30}]})
         print(f"   added the Stop hook to {SETTINGS}{save_settings(settings)}")
+    if os.path.lexists(LEGACY_HOOK):
+        os.unlink(LEGACY_HOOK)
+        print(f"   removed the older copy at {LEGACY_HOOK}")
 
 
 def verify(url: str, token: str) -> None:
@@ -325,10 +330,13 @@ def cmd_uninstall() -> int:
                 settings["hooks"]["Stop"] = kept_groups
                 print(f"Removed the Pulse Stop hook from {SETTINGS}{save_settings(settings)}")
 
-        if os.path.lexists(HOOK_DEST):
-            os.unlink(HOOK_DEST)
-            removed = True
-            print(f"Removed {HOOK_DEST}")
+        for hook in (HOOK_DEST, LEGACY_HOOK):
+            if os.path.lexists(hook):
+                os.unlink(hook)
+                removed = True
+                print(f"Removed {hook}")
+        if os.path.isdir(HOOKS_DIR) and not os.listdir(HOOKS_DIR):
+            os.rmdir(HOOKS_DIR)
         recall = os.path.join(CLAUDE_DIR, "skills", "pulse-recall")
         if os.path.lexists(recall):
             if os.path.islink(recall) or os.path.isfile(recall):
