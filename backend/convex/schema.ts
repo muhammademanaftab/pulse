@@ -13,6 +13,7 @@ export default defineSchema({
     projectPath: v.string(),
     sessionId: v.string(),
     model: v.optional(v.string()),
+    source: v.optional(v.string()),
     processed: v.boolean(),
     processedAt: v.optional(v.number()),
   })

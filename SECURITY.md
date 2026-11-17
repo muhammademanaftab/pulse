@@ -14,7 +14,8 @@ each turn it stores, in your Convex deployment:
   `new_source` dropped at any depth, so the bodies of file writes and edits are not
   sent. Shell commands are sent as written, so a command that writes a file inline
   (a heredoc) includes that text
-- project name, working directory path, git user name, session id, timestamp, model
+- project name, working directory path, git user name, session id, timestamp, model,
+  and the tool the turn came from (`claude-code`)
 
 ## How it is protected
 
@@ -41,6 +42,30 @@ each turn it stores, in your Convex deployment:
   and any `.env` or `*.jsonl` are gitignored and must never be committed.
 - **Size limits.** Fields are truncated before send and the backend rejects
   oversized bodies, so a single huge turn cannot wedge ingestion.
+
+## Exclude private folders
+
+Create `~/.pulse/ignore` as a UTF-8 text file, with one absolute folder path per
+line. `~` expands to your home folder. Blank lines and lines starting with `#`
+are ignored. Paths are literal, not glob patterns; do not add quotes.
+
+```
+~/work/private-client
+~/Personal Documents
+```
+
+On Windows, use full paths such as `C:\Users\YourName\Private` or `~/Private`.
+Each folder and its descendants are excluded. A name prefix alone does not
+match (`~/work` does not exclude `~/work-notes`). Paths are normalized and
+symlink aliases resolve to the same folder.
+
+The hook checks this list before accessing a transcript or sending an event.
+A skipped turn logs only the folder name, without any session content. A missing
+or empty list keeps capture enabled. If the list cannot be read, contains invalid
+UTF-8 or has a non-absolute path, capture is skipped until the list is fixed; the
+log records a generic configuration error. Changes to this file take effect on
+the next hook invocation. After upgrading Pulse, re-run capture setup to update
+the installed hook. Previously captured events and notes are not deleted.
 
 ## Unattended runs
 

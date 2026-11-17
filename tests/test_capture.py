@@ -11,9 +11,15 @@ Claude Code's transcript shape) and the redaction / truncation pass.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
+import ntpath
 import os
+import subprocess
+import sys
 import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 spec = importlib.util.spec_from_file_location(
@@ -156,6 +162,35 @@ def test_redaction_each_class():
         assert f"[REDACTED:{kind}]" in out, (kind, out)
         secret = sample.split()[-1]
         assert secret not in out, (kind, out)
+
+
+def test_redaction_hex_next_to_underscores():
+    for secret in ("a1b2c3d4" * 8, "a1B2c3D4" * 8,
+                   "a1b2c3d4" * 5 + "a", "a1B2c3D4" * 5):
+        for prefix, suffix in (("dop_v1_", ""), ("", "_suffix"),
+                               ("prefix_", "_suffix")):
+            text = "credential (" + prefix + secret + suffix + "), end"
+            expected = "credential (" + prefix + "[REDACTED:hex]" + suffix + "), end"
+            out = cap.redact(text)
+            assert out == expected, out
+            assert cap.redact(out) == out, out
+
+
+def test_redaction_leaves_short_hex_and_commit_shas_next_to_underscores():
+    for value in ("a1b2c3d4" * 5, "a1b2c3d4" * 4 + "a1b2c3d",
+                  "a1B2c3D4" * 4 + "a1B2c3D"):
+        for prefix, suffix in (("", ""), ("prefix_", ""),
+                               ("", "_suffix"), ("prefix_", "_suffix")):
+            text = prefix + value + suffix
+            assert cap.redact(text) == text, text
+
+
+def test_redaction_leaves_hex_inside_words():
+    value = "a1b2c3d4" * 8
+    for prefix, suffix in (("g", ""), ("", "g"),
+                           ("\u00e9", ""), ("", "\u00e9")):
+        text = prefix + value + suffix
+        assert cap.redact(text) == text, text
 
 
 def test_redaction_provider_tokens():
@@ -317,6 +352,261 @@ def test_event_id_stable_across_refires():
 def test_clean_text_passthrough():
     clean = "Refactored the parser and added a test for project foo."
     assert cap.redact(clean) == clean
+
+
+def test_ignored_folder_matches_itself_and_descendants_only():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        private = os.path.join(root, "work")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write("# Private projects\n\n" + private + os.sep + "\n")
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"):
+            assert cap.is_ignored_folder(private)
+            assert cap.is_ignored_folder(os.path.join(private, "project", "nested"))
+            assert not cap.is_ignored_folder(private + "-notes")
+            assert not cap.is_ignored_folder(root)
+
+
+def test_ignored_folder_expands_home_and_normalizes_parent_segments():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write("~/private project\n")
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"), \
+                patch.object(cap.os.path, "expanduser", side_effect=lambda p:
+                             os.path.join(root, p[2:]) if p.startswith("~/") else p):
+            assert cap.is_ignored_folder(os.path.join(root, "private project", "child", ".."))
+            assert not cap.is_ignored_folder(os.path.join(root, "public"))
+
+
+def test_ignored_folder_windows_paths_and_different_drives():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write("D:\\Private\nC:\\Users\\Example\\Work\n")
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"), \
+                patch.object(cap, "os", SimpleNamespace(path=ntpath)):
+            assert cap.is_ignored_folder("c:/users/example/WORK/project")
+            assert cap.is_ignored_folder("D:/PRIVATE")
+            assert not cap.is_ignored_folder("C:/Users/Example/Work-notes")
+            assert not cap.is_ignored_folder("E:/Private")
+
+
+def test_ignored_folder_resolves_symlink_aliases():
+    with tempfile.TemporaryDirectory() as root:
+        private = os.path.join(root, "private")
+        alias = os.path.join(root, "alias")
+        os.mkdir(private)
+        try:
+            os.symlink(private, alias, target_is_directory=True)
+        except OSError:
+            if os.name == "nt":
+                return
+            raise
+        ignore = os.path.join(root, "ignore")
+        for listed, cwd in ((private, alias), (alias, private)):
+            with open(ignore, "w", encoding="utf-8") as f:
+                f.write(listed + "\n")
+            with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"):
+                assert cap.is_ignored_folder(cwd)
+                assert cap.is_ignored_folder(os.path.join(cwd, "child"))
+
+
+def test_missing_or_empty_ignore_list_allows_capture():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log") as logged:
+            assert not cap.is_ignored_folder(root)
+            for text in ("", "\n  # comment\n\n"):
+                with open(ignore, "w", encoding="utf-8") as f:
+                    f.write(text)
+                assert not cap.is_ignored_folder(root)
+            logged.assert_not_called()
+
+
+def test_invalid_ignore_list_skips_capture_without_echoing_contents():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        for content in (b"relative/private", b"\xff", b"/private\x00folder"):
+            with open(ignore, "wb") as f:
+                f.write(content)
+            with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log") as logged:
+                assert cap.is_ignored_folder(root)
+                logged.assert_called_once_with("capture skipped: could not read or validate ~/.pulse/ignore")
+        with patch.object(cap, "IGNORE_FILE", root), patch.object(cap, "log"):
+            assert cap.is_ignored_folder(root)
+
+
+def test_ignored_turn_never_reads_transcript_or_sends_event():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write(root + "\n")
+        hook = {"cwd": root, "session_id": "not-for-log", "transcript_path": "not-for-log.jsonl"}
+        with patch.object(cap, "IGNORE_FILE", ignore), \
+                patch.object(cap, "load_env", return_value=("https://example.invalid", "fake")), \
+                patch.object(cap, "sys", SimpleNamespace(stdin=SimpleNamespace(
+                    buffer=io.BytesIO(json.dumps(hook).encode("utf-8"))))), \
+                patch.object(cap, "extract_from_transcript") as extract, \
+                patch.object(cap, "post_event") as post, \
+                patch.object(cap, "get_git_info") as git, patch.object(cap, "log") as logged:
+            cap.main()
+            extract.assert_not_called()
+            post.assert_not_called()
+            git.assert_not_called()
+            logged.assert_called_once_with(f"skipping ignored folder: {os.path.basename(root)!r}")
+
+
+def test_unlisted_turn_still_captures():
+    with tempfile.TemporaryDirectory() as root:
+        transcript = os.path.join(root, "transcript.jsonl")
+        with open(transcript, "w", encoding="utf-8") as f:
+            f.write(json.dumps(user("synthetic prompt")) + "\n")
+            f.write(json.dumps(assistant([{"type": "text", "text": "synthetic reply"}])) + "\n")
+        hook = {"cwd": root, "session_id": "fake-session", "transcript_path": transcript}
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                patch.object(cap, "load_env", return_value=("https://example.invalid", "fake")), \
+                patch.object(cap, "sys", SimpleNamespace(stdin=SimpleNamespace(
+                    buffer=io.BytesIO(json.dumps(hook).encode("utf-8"))))), \
+                patch.object(cap, "get_git_info", return_value=("project", "user")), \
+                patch.object(cap, "post_event") as post:
+            cap.main()
+            post.assert_called_once()
+            assert post.call_args.args[2]["message"] == "synthetic prompt"
+
+
+EVENT_FIELDS = {"username", "timestamp", "event_id", "message", "response", "project",
+                "project_path", "session_id", "model", "source"}
+FAKE_SECRET = "npm_" + "a1B2" * 9
+
+
+def claude_code_hook(root: str) -> dict:
+    transcript = os.path.join(root, "transcript.jsonl")
+    with open(transcript, "w", encoding="utf-8") as f:
+        f.write(json.dumps(user("deploy with " + FAKE_SECRET)) + "\n")
+        f.write(json.dumps(assistant([{"type": "text", "text": "used " + FAKE_SECRET}])) + "\n")
+    return {"cwd": root, "session_id": "fake-session", "transcript_path": transcript}
+
+
+HOOK_INPUTS = {"claude-code": claude_code_hook}
+
+
+def test_every_adapter_returns_the_same_event_and_is_redacted():
+    assert set(cap.ADAPTERS) == set(HOOK_INPUTS), "add a fake hook input for each adapter"
+    for source, hook_input in HOOK_INPUTS.items():
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                    patch.object(cap, "get_git_info", return_value=("project", "user")):
+                event = cap.capture(source, hook_input(root))
+        assert set(event) == EVENT_FIELDS, (source, sorted(event))
+        assert event["source"] == source, event
+        assert all(isinstance(event[k], str) and event[k] for k in EVENT_FIELDS), (source, event)
+        for field in ("message", "response"):
+            assert FAKE_SECRET not in event[field], (source, field)
+            assert "[REDACTED:token]" in event[field], (source, field, event[field])
+
+
+def test_core_checks_the_ignore_list_before_an_adapter_reads_the_turn():
+    with tempfile.TemporaryDirectory() as root:
+        ignore = os.path.join(root, "ignore")
+        with open(ignore, "w", encoding="utf-8") as f:
+            f.write(root + "\n")
+        calls = []
+        fake = (lambda hook_input: root, lambda hook_input: calls.append(hook_input))
+        with patch.object(cap, "IGNORE_FILE", ignore), patch.object(cap, "log"), \
+                patch.dict(cap.ADAPTERS, {"fake": fake}):
+            assert cap.capture("fake", {}) is None
+        assert calls == [], calls
+
+
+def test_adapter_without_a_turn_sends_nothing():
+    with tempfile.TemporaryDirectory() as root:
+        fake = (lambda hook_input: root, lambda hook_input: None)
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                patch.dict(cap.ADAPTERS, {"fake": fake}), \
+                patch.object(cap, "get_git_info") as git:
+            assert cap.capture("fake", {}) is None
+            git.assert_not_called()
+
+
+def test_event_carries_the_source_it_was_captured_with():
+    with tempfile.TemporaryDirectory() as root:
+        turn = {"prompt": "fake prompt", "response": "", "model": None, "session_id": "fake"}
+        fake = (lambda hook_input: root, lambda hook_input: turn)
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                patch.dict(cap.ADAPTERS, {"fake": fake}), \
+                patch.object(cap, "get_git_info", return_value=("project", "user")):
+            event = cap.capture("fake", {})
+    assert event["source"] == "fake" and event["model"] == "unknown", event
+    assert event["event_id"] == cap.make_event_id("fake", "fake prompt", ""), event
+
+
+def test_source_argument():
+    assert cap.source_arg([]) == "claude-code"
+    assert cap.source_arg(["--source", "codex"]) == "codex"
+    assert cap.source_arg(["--source=codex"]) == "codex"
+    assert cap.source_arg(["--other", "--source", "cursor"]) == "cursor"
+    assert cap.source_arg(["--source"]) == ""
+    assert cap.source_arg(["--source="]) == ""
+
+
+def test_hook_run_as_a_process_reads_its_source_and_stays_silent():
+    with tempfile.TemporaryDirectory() as home:
+        os.makedirs(os.path.join(home, ".pulse"))
+        with open(os.path.join(home, ".pulse", ".env"), "w", encoding="utf-8") as f:
+            f.write("CONVEX_URL=https://example.invalid\nCONVEX_TOKEN=fake\n")
+        env = {**os.environ, "HOME": home, "USERPROFILE": home}
+        if sys.version_info < (3, 10):
+            env.pop("PYTHONWARNINGS", None)
+        script = os.path.join(REPO, "skills", "setup", "capture.py")
+        for argv in (["--source", "nope"], ["--source=nope"]):
+            result = subprocess.run([sys.executable, script, *argv], input=b"{}", env=env,
+                                    capture_output=True, timeout=30)
+            assert (result.returncode, result.stdout, result.stderr) == (0, b"", b""), result
+        with open(os.path.join(home, ".pulse", "capture.log"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        assert len(lines) == 2 and all("unknown source 'nope'" in line for line in lines), lines
+
+
+def run_main(hook: dict, argv=None):
+    with patch.object(cap, "load_env", return_value=("https://example.invalid", "fake")), \
+            patch.object(cap, "sys", SimpleNamespace(stdin=SimpleNamespace(
+                buffer=io.BytesIO(json.dumps(hook).encode("utf-8"))))), \
+            patch.object(cap, "get_git_info", return_value=("project", "user")), \
+            patch.object(cap, "post_event") as post, patch.object(cap, "log") as logged:
+        cap.main() if argv is None else cap.main(argv)
+    return post, logged
+
+
+def test_hook_command_without_a_source_still_captures_as_claude_code():
+    with tempfile.TemporaryDirectory() as root:
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")):
+            post, _ = run_main(claude_code_hook(root))
+            explicit, _ = run_main(claude_code_hook(root), ["--source", "claude-code"])
+    post.assert_called_once()
+    assert post.call_args.args[2]["source"] == "claude-code"
+    assert explicit.call_args.args[2]["source"] == "claude-code"
+    assert post.call_args.args[2]["event_id"] == explicit.call_args.args[2]["event_id"]
+
+
+def test_unknown_source_sends_nothing_and_says_so():
+    with tempfile.TemporaryDirectory() as root:
+        for argv in (["--source", "nope"], ["--source"]):
+            post, logged = run_main(claude_code_hook(root), argv)
+            post.assert_not_called()
+            logged.assert_called_once()
+            assert "unknown source" in logged.call_args.args[0], logged.call_args
+
+
+def test_event_id_formula_is_pinned_and_uses_the_unredacted_turn():
+    assert cap.make_event_id("fake-session", "first prompt", "first answer") == \
+        "d892bdc5927022dc11b56c4ac4aa4643"
+    with tempfile.TemporaryDirectory() as root:
+        with patch.object(cap, "IGNORE_FILE", os.path.join(root, "missing-ignore")), \
+                patch.object(cap, "get_git_info", return_value=("project", "user")):
+            event = cap.capture("claude-code", claude_code_hook(root))
+    assert event["event_id"] == cap.make_event_id(
+        "fake-session", "deploy with " + FAKE_SECRET, "used " + FAKE_SECRET), event
 
 
 def test_truncation():

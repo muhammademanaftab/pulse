@@ -5,4 +5,4 @@ contact_links:
     about: Ask how something works or float an idea before opening an issue.
   - name: Security problem
     url: https://github.com/muhammademanaftab/pulse/security/advisories/new
-    about: Report a vulnerability privately. Please do not open a public issue.
+    about: Report a vulnerability or a conduct problem privately. Please do not open a public issue.
