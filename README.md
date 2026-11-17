@@ -62,10 +62,10 @@ Every other skill just reads those notes. These work today:
 - A **weekly recap** of what you got done.
 - A **page per project** that collects its decisions, bugs, rules and open items, and links every day you worked on it.
 - **Recall**: ask "when did I fix the alert bug?" or "why did we pick CSV?" from any project and get the answer with the date and the note it came from.
-- **Post drafts**: a LinkedIn post and an X thread about your week, written from your notes for you to review. Pulse never posts for you.
+- **Post drafts**: a LinkedIn post, an X thread and a devlog about your week, written from your notes for you to review. Pulse never posts for you.
 - **Standup**: a short Yesterday, Today and Blockers draft from your latest completed daily note. Run `skills/standup/SKILL.md` when you need a team update; it never sends the draft.
 
-More can follow the same pattern (a devlog, a brag document for a review): small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
+More can follow the same pattern (a brag document for a review): small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
 ## How it works
 
@@ -90,7 +90,7 @@ skills/
   digest/         writes the daily note
   projects/       keeps one page per project
   synth/          writes the weekly note
-  posts/          drafts a LinkedIn post and an X thread
+  posts/          drafts a LinkedIn post, an X thread and a devlog
   standup/        drafts a team update from the latest completed daily note
   recall/         answers questions from your notes
   shared/         code and the writing guide the skills share
@@ -206,7 +206,7 @@ project name in your notes (`my-app-backend: My App`), and to list scratch folde
 
 ## Status
 
-Pulse is early (0.x). Capture, the daily note, project pages, the weekly recap, recall and post drafts work today. A devlog and a brag document are planned, not built yet. Expect rough edges and breaking changes until 1.0.
+Pulse is early (0.x). Capture, the daily note, project pages, the weekly recap, recall and post drafts (including a devlog) work today. A brag document is planned, not built yet. Expect rough edges and breaking changes until 1.0.
 
 ## Contributing
 
