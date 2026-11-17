@@ -78,7 +78,8 @@ REDACT_PATTERNS = (
         r"\b(?:glpat-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{35}|hf_[A-Za-z0-9]{30,}"
         r"|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"
         r"|npm_[A-Za-z0-9]{36}\b|[0-9]{6,}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])"
-        r"|lin_api_[A-Za-z0-9]{40}\b|shp(?:at|ca|pa)_[A-Za-z0-9]{32}\b)")),
+        r"|lin_api_[A-Za-z0-9]{40}\b|shp(?:at|ca|pa)_[A-Za-z0-9]{32}\b"
+        r"|pypi-[A-Za-z0-9_-]{85,}|dckr_pat_[A-Za-z0-9_-]{27}(?![A-Za-z0-9_-]))")),
     ("bearer", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.I)),
     ("basic-auth", re.compile(r"\bBasic\s+[A-Za-z0-9+/]{16,}={0,2}")),
     ("assignment", re.compile(

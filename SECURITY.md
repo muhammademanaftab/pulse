@@ -22,10 +22,11 @@ each turn it stores, in your Convex deployment:
 - **Redaction.** Before anything leaves your machine, capture scrubs common secret
   shapes: private key blocks, passwords inside connection URLs, AWS / GitHub /
   GitLab / Slack (including webhook URLs) / Stripe / Google API / Hugging Face /
-  SendGrid / npm / Telegram bot / Linear / Shopify keys and tokens, OpenAI-style keys,
-  JWTs, `Bearer` and `Basic` headers, `key=value` and `"key": "value"` assignments for
-  api-key / token / secret / password, and long hex runs (a 40-character git commit
-  SHA is left alone). Matches become `[REDACTED:<kind>]`.
+  SendGrid / npm / Telegram bot / Linear / Shopify / PyPI / Docker Hub keys and
+  tokens, OpenAI-style keys, JWTs, `Bearer` and `Basic` headers, `key=value` and
+  `"key": "value"` assignments for api-key / token / secret / password, and long hex
+  runs (a 40-character git commit SHA is left alone). Matches become
+  `[REDACTED:<kind>]`.
 - **This is best-effort, not a guarantee.** Novel or unusual secret formats can slip
   through, and the patterns can occasionally redact harmless text that looks like a
   secret (a sha256 digest, a sentence like "password: correct-horse-battery"). Do not rely
