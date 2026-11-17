@@ -158,6 +158,35 @@ def test_redaction_each_class():
         assert secret not in out, (kind, out)
 
 
+def test_redaction_hex_next_to_underscores():
+    for secret in ("a1b2c3d4" * 8, "a1B2c3D4" * 8,
+                   "a1b2c3d4" * 5 + "a", "a1B2c3D4" * 5):
+        for prefix, suffix in (("dop_v1_", ""), ("", "_suffix"),
+                               ("prefix_", "_suffix")):
+            text = "credential (" + prefix + secret + suffix + "), end"
+            expected = "credential (" + prefix + "[REDACTED:hex]" + suffix + "), end"
+            out = cap.redact(text)
+            assert out == expected, out
+            assert cap.redact(out) == out, out
+
+
+def test_redaction_leaves_short_hex_and_commit_shas_next_to_underscores():
+    for value in ("a1b2c3d4" * 5, "a1b2c3d4" * 4 + "a1b2c3d",
+                  "a1B2c3D4" * 4 + "a1B2c3D"):
+        for prefix, suffix in (("", ""), ("prefix_", ""),
+                               ("", "_suffix"), ("prefix_", "_suffix")):
+            text = prefix + value + suffix
+            assert cap.redact(text) == text, text
+
+
+def test_redaction_leaves_hex_inside_words():
+    value = "a1b2c3d4" * 8
+    for prefix, suffix in (("g", ""), ("", "g"),
+                           ("\u00e9", ""), ("", "\u00e9")):
+        text = prefix + value + suffix
+        assert cap.redact(text) == text, text
+
+
 def test_redaction_provider_tokens():
     samples = [
         "npm_" + "a1B2" * 9,
