@@ -63,6 +63,7 @@ Every other skill just reads those notes. These work today:
 - A **page per project** that collects its decisions, bugs, rules and open items, and links every day you worked on it.
 - **Recall**: ask "when did I fix the alert bug?" or "why did we pick CSV?" from any project and get the answer with the date and the note it came from.
 - **Post drafts**: a LinkedIn post and an X thread about your week, written from your notes for you to review. Pulse never posts for you.
+- **Standup**: a short Yesterday, Today and Blockers draft from your latest completed daily note. Run `skills/standup/SKILL.md` when you need a team update; it never sends the draft.
 
 More can follow the same pattern (a devlog, a brag document for a review): small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
@@ -90,6 +91,7 @@ skills/
   projects/       keeps one page per project
   synth/          writes the weekly note
   posts/          drafts a LinkedIn post and an X thread
+  standup/        drafts a team update from the latest completed daily note
   recall/         answers questions from your notes
   shared/         code and the writing guide the skills share
 routines/        instructions for the nightly and weekly cloud runs
