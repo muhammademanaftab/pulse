@@ -58,7 +58,7 @@ def test_inclusive_range_sources_and_project_grouping():
         assert project["entries"][0]["source"] == "[[Pulse/Daily/2026-05/2026-05-31|2026-05-31]]", project
         assert "Decided: keep sessions for 30 days." in project["entries"][0]["bullets"][2], project
         assert "## Summary" in got["notes"][0]["text"], got
-        assert got["output_path"] == os.path.join(root, "Pulse/Brag/2026-05-31_to_2026-06-02.md"), got
+        assert got["output_path"] == os.path.join(root, "Pulse/Brag", "2026-05-31_to_2026-06-02.md"), got
         assert not os.path.exists(got["output_path"])
 
 
@@ -100,7 +100,7 @@ def test_custom_folders_unicode_and_fenced_examples():
         assert got["projects"]["Caf\u00e9"]["rendered"] == "[[Caf\u00e9]]", got
         assert "Fake" not in got["projects"], got
         assert got["notes"][0]["path"] == "Journal/Days/2026-06/2026-06-02.md", got
-        assert got["output_path"] == os.path.join(root, "Reviews/2026-05-31_to_2026-06-02.md")
+        assert got["output_path"] == os.path.join(root, "Reviews", "2026-05-31_to_2026-06-02.md")
         with open(path, encoding="utf-8") as file:
             assert file.read() == text
 
