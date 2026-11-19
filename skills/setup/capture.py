@@ -62,6 +62,10 @@ AUTO_INJECTED_PREFIXES = (
     "<bash-stderr>",
 )
 
+NOT_AN_ENV_LOOKUP = (
+    r"(?!['\"]?(?:process\.env|os\.environ|os\.getenv|\$\{?[A-Za-z_]|undefined\b|null\b|None\b"
+    r"|\[REDACTED:))")
+
 REDACT_PATTERNS = (
     ("private-key", re.compile(
         r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----.*?"
@@ -83,11 +87,26 @@ REDACT_PATTERNS = (
     ("bearer", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}", re.I)),
     ("basic-auth", re.compile(r"\bBasic\s+[A-Za-z0-9+/]{16,}={0,2}")),
     ("assignment", re.compile(
-        r"((?:api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|token|passwd|password)"
-        r"\b['\"]?\s*[=:]\s*"
-        r"(?!['\"]?(?:process\.env|os\.environ|os\.getenv|\$\{?[A-Za-z_]|undefined\b|null\b|None\b"
-        r"|\[REDACTED:))"
-        r"['\"]?)[^\s'\"]{8,}", re.I)),
+        r"((?:api[_-]?key|access[_-]?key|secret(?:[_-]?key)?|token|passwd|password|passphrase"
+        r"|[_-]pass|[_-]pwd)"
+        r"\b['\"]?\s*[=:]\s*" + NOT_AN_ENV_LOOKUP +
+        r"['\"]?)(?:(?=[^\s)\]},;+])(?:(?<=\")[^\"\r\n]{8,200}(?=\")|(?<=')[^'\r\n]{8,200}(?='))"
+        r"|[^\s'\"]{8,})", re.I)),
+    ("password", re.compile(
+        r"((?<![A-Za-z0-9])(?:pass|pwd|credentials?)(?:[_-][A-Za-z0-9_]{1,40})?"
+        r"['\"]?\s*[=:]\s*" + NOT_AN_ENV_LOOKUP + r"(?!['\"]?(?:[~.]{0,2}/|[A-Za-z]:[\\/]))"
+        r"['\"]?)(?=[^\s'\"]{0,63}[0-9])[^\s'\"]{8,}", re.I)),
+    ("cli-password", re.compile(
+        r"(\b(?:mysql|mariadb)[^\n]{0,200}?\s-p['\"]?)(?!\[REDACTED:)[^\s'\"]{8,}")),
+    ("cli-password", re.compile(
+        r"(\bcurl\b[^\n]{0,200}?\s(?:-u\s*|--user[=\s]\s*)['\"]?[^\s:'\"]{0,100}:)"
+        + NOT_AN_ENV_LOOKUP + r"[^\s'\"]{8,}")),
+    ("authorization", re.compile(
+        r"(\bauthorization['\"]?\s*:\s*['\"]?(?:(?!(?:bearer|basic)\b)[a-z][a-z0-9_-]{0,30}\s+)?)"
+        r"(?!\[REDACTED:)[A-Za-z0-9._~+/=-]{16,}", re.I)),
+    ("cookie", re.compile(
+        r"(\bcookie['\"]?\s*:\s*['\"]?)(?=[^\s=;'\"]{1,256}=)"
+        r"[^\r\n]+?(?=['\"](?:[\s,)}\]]|\Z)|[\r\n]|\Z)", re.I)),
     ("hex", re.compile(
         r"(?:\b|(?<=_))(?![a-f0-9]{40}(?:\b|(?=_)))"
         r"[a-fA-F0-9]{40,}(?:\b|(?=_))")),
