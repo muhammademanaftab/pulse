@@ -149,6 +149,9 @@ def test_cli_json_utf8_errors_and_no_writes():
         note(root, "2026-06-01", work("Caf\u00e9"))
         env = {**os.environ, "NOTES_REPO": root, "PULSE_HOME": root, "PULSE_TZ": "UTC",
                "PULSE_VAULT_SUBFOLDER": "", "PULSE_WRAPPED_SUBFOLDER": "", "PYTHONIOENCODING": "cp1252"}
+        if sys.version_info < (3, 10):
+            env["PYTHONWARNINGS"] = ",".join(rule for rule in env.get("PYTHONWARNINGS", "").split(",")
+                                             if rule != "error::EncodingWarning")
         def run(*args):
             return subprocess.run([sys.executable, SCRIPT, *args], env=env, capture_output=True)
         result = run("--month", "2026-06")
