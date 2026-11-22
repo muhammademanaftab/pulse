@@ -201,7 +201,7 @@ def test_redaction_provider_tokens():
         "lin_api_" + "a1B2c3D4" * 5,
         "pypi-" + "AgEIcHlwaS5vcmc" + "a1B2c3D4" * 9,
         "dckr_pat_" + "a1B2c3D4" * 3 + "a1B",
-        "gsk_" + "a1B2" * 12,
+        "gsk_" + "a1B2" * 13,
         "r8_" + "a1B2c3D4" * 4 + "a1B2c",
         "pplx-" + "a1B2" * 12,
     ]
