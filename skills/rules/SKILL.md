@@ -1,4 +1,4 @@
-﻿---
+---
 name: rules
 description: Review Rule bullets from Pulse daily notes and suggest durable project rules for CLAUDE.md.
 disable-model-invocation: true
