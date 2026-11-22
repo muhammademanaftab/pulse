@@ -60,6 +60,7 @@ Pulse is built from small skills. The daily note is the first one: it reads your
 Every other skill just reads those notes. These work today:
 
 - A **weekly recap** of what you got done.
+- **Wrapped**: a private month or year in review, with recorded activity counts and sourced highlights. Run `skills/wrapped/SKILL.md`; it never publishes the draft.
 - A **page per project** that collects its decisions, bugs, rules and open items, and links every day you worked on it.
 - **Recall**: ask "when did I fix the alert bug?" or "why did we pick CSV?" from any project and get the answer with the date and the note it came from.
 - **Post drafts**: a LinkedIn post, an X thread and a devlog about your week, written from your notes for you to review. Pulse never posts for you.
@@ -90,6 +91,7 @@ skills/
   digest/         writes the daily note
   projects/       keeps one page per project
   synth/          writes the weekly note
+  wrapped/        counts a month or year and drafts a private review
   posts/          drafts a LinkedIn post, an X thread and a devlog
   standup/        drafts a team update from the latest completed daily note
   recall/         answers questions from your notes
