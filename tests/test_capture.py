@@ -201,6 +201,9 @@ def test_redaction_provider_tokens():
         "lin_api_" + "a1B2c3D4" * 5,
         "pypi-" + "AgEIcHlwaS5vcmc" + "a1B2c3D4" * 9,
         "dckr_pat_" + "a1B2c3D4" * 3 + "a1B",
+        "gsk_" + "a1B2" * 13,
+        "r8_" + "a1B2c3D4" * 4 + "a1B2c",
+        "pplx-" + "a1B2" * 12,
     ]
     samples.extend(prefix + "a1B2c3D4" * 4
                    for prefix in ("shpat_", "shpca_", "shppa_"))
@@ -219,6 +222,7 @@ def test_redaction_leaves_normal_numbers_and_colons():
         "npm_package_name and lin_api_examples are labels.",
         "pypi-package-name is just a package name.",
         "dckr_pat_short is not a token.",
+        "gsk_example is a harmless label.",
     ):
         assert cap.redact(text) == text, text
 
@@ -265,6 +269,130 @@ def test_redaction_leaves_commit_shas_and_env_lookups():
         "export TOKEN=$GITHUB_TOKEN",
         "The token=undefined bug",
         "see https://example.com/docs/page",
+    ):
+        assert cap.redact(harmless) == harmless, (harmless, cap.redact(harmless))
+
+
+FAKE_PASSWORD = "Sup3r" + "SecretPw99"
+FAKE_HEADER_TOKEN = "a1B2c3D4" * 4
+
+
+def assert_redacts_to(sample, expected):
+    out = cap.redact(sample)
+    assert out == expected, (sample, out)
+    assert cap.redact(out) == out, out
+
+
+def test_redaction_quoted_values_with_spaces():
+    phrase = "my secret " + "pass phrase"
+    for sample, expected in (
+        ('password: "' + phrase + '"', 'password: "[REDACTED:assignment]"'),
+        ("password: '" + phrase + "'", "password: '[REDACTED:assignment]'"),
+        ('{"password": "' + phrase + '"}', '{"password": "[REDACTED:assignment]"}'),
+        ('DB_PASSWORD="' + phrase + '"', 'DB_PASSWORD="[REDACTED:assignment]"'),
+        ('passphrase: "correct horse ' + 'battery staple"', 'passphrase: "[REDACTED:assignment]"'),
+        ('api_key = "' + phrase + '"', 'api_key = "[REDACTED:assignment]"'),
+    ):
+        assert_redacts_to(sample, expected)
+
+
+def test_redaction_short_password_key_names():
+    for key, kind in (
+        ("DB_PASS=", "assignment"), ("DB_PWD=", "assignment"), ("MYSQL_PWD=", "assignment"),
+        ("--pass=", "assignment"), ("passphrase=", "assignment"), ("PWD_ADMIN=", "password"),
+        ("PASS_ADMIN: ", "password"), ("pass=", "password"), ("pwd: ", "password"),
+        ("credential=", "password"), ("credentials=", "password"), ("SMTP_CREDENTIALS: ", "password"),
+        ('"pass": "', "password"), ("openssl enc -pass pass:", "password"),
+    ):
+        assert_redacts_to(key + FAKE_PASSWORD, key + "[REDACTED:" + kind + "]")
+    assert_redacts_to("DB_PASS=" + "hunter" * 2, "DB_PASS=[REDACTED:assignment]")
+
+
+def test_redaction_command_line_passwords():
+    pw = FAKE_PASSWORD
+    for sample, expected in (
+        ("mysql -u root -p" + pw + " db", "mysql -u root -p[REDACTED:cli-password] db"),
+        ("mysqldump -h db1 -u root -p'" + pw + "' app", "mysqldump -h db1 -u root -p'[REDACTED:cli-password]' app"),
+        ("mariadb -p" + pw, "mariadb -p[REDACTED:cli-password]"),
+        ("curl -u admin:" + pw + " https://x.test", "curl -u admin:[REDACTED:cli-password] https://x.test"),
+        ("curl --user admin:" + pw + " https://x.test", "curl --user admin:[REDACTED:cli-password] https://x.test"),
+        ("curl -sSL --user=admin:" + pw + " https://x.test",
+         "curl -sSL --user=admin:[REDACTED:cli-password] https://x.test"),
+        ('curl -u "admin:' + pw + '" https://x.test', 'curl -u "admin:[REDACTED:cli-password]" https://x.test'),
+        ("curl -uadmin:" + pw + " https://x.test", "curl -uadmin:[REDACTED:cli-password] https://x.test"),
+    ):
+        assert_redacts_to(sample, expected)
+
+
+def test_redaction_cookie_and_authorization_headers():
+    tok = FAKE_HEADER_TOKEN
+    for sample, expected in (
+        ("Cookie: sessionid=" + tok, "Cookie: [REDACTED:cookie]"),
+        ("Set-Cookie: sessionid=" + tok + "; Path=/; HttpOnly", "Set-Cookie: [REDACTED:cookie]"),
+        ("curl -H 'Cookie: theme=dark; sessionid=" + tok + "' https://x.test",
+         "curl -H 'Cookie: [REDACTED:cookie]' https://x.test"),
+        ('{"cookie": "sessionid=' + tok + '"}', '{"cookie": "[REDACTED:cookie]"}'),
+        ('Set-Cookie: sessionid="' + tok + '"; Path=/', "Set-Cookie: [REDACTED:cookie]"),
+        ("'Set-Cookie: a=" + tok + "\\r\\nSet-Cookie: b=" + tok + "'", "'Set-Cookie: [REDACTED:cookie]'"),
+        ("Authorization: token " + tok, "Authorization: token [REDACTED:authorization]"),
+        ("authorization: Bot " + tok, "authorization: Bot [REDACTED:authorization]"),
+        ("Proxy-Authorization: Digest " + tok, "Proxy-Authorization: Digest [REDACTED:authorization]"),
+        ('"Authorization": "token ' + tok + '"', '"Authorization": "token [REDACTED:authorization]"'),
+        ("Authorization: " + tok, "Authorization: [REDACTED:authorization]"),
+        ("Authorization: Bearer " + tok, "Authorization: [REDACTED:bearer]"),
+    ):
+        assert_redacts_to(sample, expected)
+
+
+def test_redaction_leaves_harmless_flags_paths_and_prose():
+    for harmless in (
+        "mkdir -p /tmp/a/b",
+        "ssh -p 2222 host",
+        "docker run -p 8080:80 img",
+        "cp -pR src dst",
+        "gcc -pedantic-errors main.c",
+        "mysql -u root -p app_db",
+        "mysql -h db1 -P 3306 -u root -p",
+        "docker exec -u www-data:www-data app ls",
+        "PWD=/Users/someone/project",
+        "OLDPWD=/home/x/y",
+        "PWD=/home/u1/proj2",
+        "PASS_FILE=/run/secrets/db1",
+        "GOOGLE_APPLICATION_CREDENTIALS=/home/me/key1.json",
+        "CREDENTIALS_PATH=C:\\Users\\me\\creds1.json",
+        "bypass=truevalue123",
+        "compass: northwest-heading",
+        "passive: voice123456",
+        'password = os.environ["X"]',
+        "curl -u",
+        "curl -u admin https://x.test",
+        'curl -u "$USER:$API_PASSWORD" https://x.test',
+        "curl -sSL https://example.com/install.sh",
+        "the pass was completed quickly",
+        'git commit -m "pass: second attempt at it"',
+        "First pass: refactoring everything",
+        "if ok: pass",
+        "pass_count=12",
+        "pytest: 10 passed, 2 failed",
+        "Password reset: check the email",
+        "fetch(url, { credentials: 'same-origin' })",
+        "Client(credentials=credentials)",
+        "credential=DefaultAzureCredential()",
+        "withCredentials: true",
+        "has_credentials=True",
+        'input("Password: ") + check("something long here")',
+        'log("token: " + token_name + " suffix")',
+        'print("password: ", pw, "and more text")',
+        "Authorization: the process of granting access",
+        "Authorization: Bearer short",
+        "Authorization: Basic short",
+        "Authorization: token $GITHUB_TOKEN",
+        'headers = {"Authorization": f"token {tok}"}',
+        'authorization = self.headers.get("authorization")',
+        "authorization = authorization.split(':')",
+        "the Cookie: header carries state",
+        "Cookies: we use them sparingly",
+        "document.cookie = 'a=b'",
     ):
         assert cap.redact(harmless) == harmless, (harmless, cap.redact(harmless))
 

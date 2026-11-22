@@ -87,6 +87,9 @@ jobs:
       - name: Weekly synth parser tests
         run: python3 tests/test_synth.py
 
+      - name: Wrapped activity counts and source tests
+        run: python3 tests/test_wrapped.py
+
       - name: Project page tests
         run: python3 tests/test_projects.py
 

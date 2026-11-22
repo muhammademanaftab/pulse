@@ -22,15 +22,22 @@ each turn it stores, in your Convex deployment:
 - **Redaction.** Before anything leaves your machine, capture scrubs common secret
   shapes: private key blocks, passwords inside connection URLs, AWS / GitHub /
   GitLab / Slack (including webhook URLs) / Stripe / Google API / Hugging Face /
-  SendGrid / npm / Telegram bot / Linear / Shopify / PyPI / Docker Hub keys and
-  tokens, OpenAI-style keys, JWTs, `Bearer` and `Basic` headers, `key=value` and
-  `"key": "value"` assignments for api-key / token / secret / password, and long hex
-  runs (a 40-character git commit SHA is left alone). Matches become
+  SendGrid / npm / Telegram bot / Linear / Shopify / PyPI / Docker Hub /
+  Groq / Replicate / Perplexity keys and tokens, OpenAI-style keys, JWTs,
+  `Bearer` and `Basic` headers, `key=value` and `"key": "value"` assignments
+  for api-key / token / secret / password / pass / pwd / passphrase / credential
+  (quoted values may contain spaces), `Cookie` / `Set-Cookie` and other
+  `Authorization` headers, `mysql -p...` and `curl -u user:...` passwords,
+  and long hex runs (a 40-character git commit SHA is left alone). Matches become
   `[REDACTED:<kind>]`.
 - **This is best-effort, not a guarantee.** Novel or unusual secret formats can slip
   through, and the patterns can occasionally redact harmless text that looks like a
   secret (a sha256 digest, a sentence like "password: correct-horse-battery"). Do not rely
   on it as your only control. If you paste a credential into a session, rotate it.
+  Passwords shorter than 8 characters are not caught, nor are bare secrets with no
+  recognised prefix or key name (such as an AWS secret key on its own). Values for
+  credential keys, and for keys that start with pass or pwd, are caught only if they
+  contain a digit, so prose like "First pass: refactoring" is left alone.
   The redaction patterns live in `capture.py` (`REDACT_PATTERNS`) and are easy to
   extend for your own formats.
 - **Transport.** Capture and the digest refuse a non-`https://` `CONVEX_URL`, so the
