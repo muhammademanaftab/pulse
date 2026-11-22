@@ -16,8 +16,10 @@ Never change source notes, commit, push, send or publish the document.
    python3 skills/brag/brag.py collect --from YYYY-MM-DD --to YYYY-MM-DD > /tmp/pulse-brag-evidence.json
    ```
 
-   Stop on an error. The JSON contains the daily notes' text and per-project
-   entries with original bullets and ready-to-copy `source` citations. Dates
+   Stop on an error. The JSON lists the daily notes it read (`date` and `path`,
+   relative to `notes_repo_dir`) and per-project entries with original bullets
+   and ready-to-copy `source` citations. It does not carry the notes' full text,
+   so a long period stays small enough to read. Dates
    refer to the existing daily notes, whose dates already follow the digest's
    configured timezone. No weekly or project-page summaries are used as proof:
    they may describe work outside the requested period. Project pages are used
@@ -35,14 +37,17 @@ Never change source notes, commit, push, send or publish the document.
      investigation is not a fixed bug.
 
    Use one claim per `- ` bullet, ending with one or more exact `source` links
-   from that project's entries. Read the full daily-note context when needed.
+   from that project's entries. When a bullet needs more context, open that note
+   at its `path` inside `notes_repo_dir`.
    Combine repeated work without double-counting results, citing every note
    needed to support the combined claim. Preserve uncertainty and attribution;
    do not turn team work into sole credit. Never invent metrics, impact, reasons,
    seniority or completed work. Omit unsupported categories and projects.
 
    If no supported accomplishments exist, write only the title, a blank line
-   and `No supported accomplishments recorded for this period.` This describes
+   and `No supported accomplishments recorded for this period.` Show that in the
+   conversation and do not save it: a note with no links fails the vault link
+   check the nightly digest runs. This describes
    the notes, not whether the user accomplished anything. Tell the user how many
    source notes were available so missing history is clear.
 
@@ -59,8 +64,9 @@ Never change source notes, commit, push, send or publish the document.
 
    Fix failures and rerun. This checks the layout and that each citation belongs
    to that project in the requested period. It cannot prove that the claim is
-   supported. Compare each claim with the cited bullets and full note, including
-   later corrections in the collected period. Remove unsupported claims. Review
+   supported. Compare each claim with the cited bullets and the note at its
+   `path`, including later corrections in the collected period. Remove
+   unsupported claims. Review
    the empty-period statement against all collected projects too.
 
 5. Save the reviewed draft at the returned `output_path`, creating its parent

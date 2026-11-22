@@ -51,7 +51,7 @@ def collect(cfg: dict, start: str, end: str) -> dict:
         _, blocks = parse_note(text)
         relative = os.path.relpath(path, repo).replace("\\", "/")
         source = f"[[{relative[:-3]}|{stamp}]]"
-        notes.append({"date": stamp, "path": relative, "text": text})
+        notes.append({"date": stamp, "path": relative})
         for block in blocks:
             if not block["bullets"]:
                 continue

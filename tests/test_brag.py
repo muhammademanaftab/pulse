@@ -57,7 +57,7 @@ def test_inclusive_range_sources_and_project_grouping():
         assert got["projects"]["Notifications"]["rendered"] == "**Notifications**", got
         assert project["entries"][0]["source"] == "[[Pulse/Daily/2026-05/2026-05-31|2026-05-31]]", project
         assert "Decided: keep sessions for 30 days." in project["entries"][0]["bullets"][2], project
-        assert "## Summary" in got["notes"][0]["text"], got
+        assert got["notes"][0] == {"date": "2026-05-31", "path": "Pulse/Daily/2026-05/2026-05-31.md"}, got
         assert got["output_path"] == os.path.join(root, "Pulse/Brag", "2026-05-31_to_2026-06-02.md"), got
         assert not os.path.exists(got["output_path"])
 
@@ -155,7 +155,7 @@ def test_lint_rejects_unsourced_prose_empty_or_duplicate_sections_and_wrong_rang
 
 def test_cli_collect_lint_errors_and_utf8():
     with tempfile.TemporaryDirectory() as root:
-        path = note(root, "2026-06-02", GOOD + "\nCaf\u00e9.\n")
+        path = note(root, "2026-06-02", GOOD.replace("Alerts no longer", "Caf\u00e9 alerts no longer"))
         env = {**os.environ, "NOTES_REPO": root, "PULSE_HOME": root, "PULSE_VAULT_SUBFOLDER": "",
                "PULSE_PROJECTS_SUBFOLDER": "", "PULSE_BRAG_SUBFOLDER": "", "PYTHONIOENCODING": "cp1252"}
         if sys.version_info < (3, 10):
@@ -166,7 +166,8 @@ def test_cli_collect_lint_errors_and_utf8():
         result = run("collect", "--from", "2026-05-31", "--to", "2026-06-02")
         assert result.returncode == 0, result.stderr
         got = json.loads(result.stdout.decode("utf-8"))
-        assert "Caf\u00e9" in got["notes"][0]["text"], got
+        assert "Caf\u00e9" in got["projects"]["Notifications"]["entries"][0]["bullets"][0], got
+        assert "text" not in got["notes"][0], got
         evidence = write(root, "evidence.json", json.dumps(got))
         document = write(root, "draft.md", draft(got))
         assert run("lint", "--evidence", evidence, document).returncode == 0
