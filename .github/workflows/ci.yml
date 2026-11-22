@@ -90,6 +90,9 @@ jobs:
       - name: Project page tests
         run: python3 tests/test_projects.py
 
+      - name: Project rules collector tests
+        run: python3 tests/test_rules.py
+
       - name: Recall search tests
         run: python3 tests/test_recall.py
 

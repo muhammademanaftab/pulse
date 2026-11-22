@@ -67,6 +67,7 @@ Every other skill just reads those notes. These work today:
 
 More can follow the same pattern (a brag document for a review): small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
+- **Project rules**: review `Rule:` bullets from daily notes and propose additions to `CLAUDE.md` for approval.
 ## How it works
 
 ```
