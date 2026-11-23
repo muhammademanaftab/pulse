@@ -105,6 +105,9 @@ jobs:
       - name: Brag document collection and citation tests
         run: python3 tests/test_brag.py
 
+      - name: Rules collection tests
+        run: python3 tests/test_rules.py
+
       - name: Link-rendering rule (existence-based)
         run: |
           set -e

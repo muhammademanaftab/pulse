@@ -67,6 +67,8 @@ Every other skill just reads those notes. These work today:
 - **Standup**: a short Yesterday, Today and Blockers draft from your latest completed daily note. Run `skills/standup/SKILL.md` when you need a team update; it never sends the draft.
 - **Brag document**: a review draft for a date range, grouped by project, with outcomes, decisions and hard bugs fixed. Every claim links to its daily note. Run `skills/brag/SKILL.md --from YYYY-MM-DD --to YYYY-MM-DD`; it never sends the draft.
 
+- **Rules suggestions**: review recurring Rule entries in daily notes and propose new instructions for the current project's CLAUDE.md. Nothing changes without your approval.
+
 More can follow the same pattern: small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
 ## How it works
