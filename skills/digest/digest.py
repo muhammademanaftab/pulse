@@ -30,31 +30,11 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared"))
 from common import (  # noqa: E402
-    BANNED_RE,
-    DASH_RE,
-    DATE_FILE_RE,
-    LOOP_TAG_RE,
-    TASK_RE,
-    UNSAFE_LABEL_RE,
-    cfg_get,
-    get_tz,
-    h2_body,
-    link_into_hubs,
-    list_dated_notes,
-    load_config,
-    loop_text,
-    notes_repo_dir,
-    pulse_home,
+    BANNED_RE, DASH_RE, DATE_FILE_RE, LOOP_TAG_RE, TASK_RE, UNSAFE_LABEL_RE, cfg_get, get_tz, h2_body,
+    link_into_hubs, list_dated_notes, load_config, loop_text, notes_repo_dir, pulse_home,
     read_note,
-    render_label,
-    rx_search,
-    strip_comment,
-    strip_code,
-    strip_code_blocks,
-    utf8_stdio,
-    load_labels,
-    path_label,
-)
+    render_label, strip_code, strip_code_blocks, utf8_stdio,
+    load_labels, path_label, rx_search, strip_comment)
 
 TRIVIAL_PROMPTS = {
     "hi", "hello", "hey", "yo", "thanks", "thank you", "ty", "ok", "okay", "k",

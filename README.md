@@ -66,7 +66,7 @@ Every other skill just reads those notes. These work today:
 - **Post drafts**: a LinkedIn post, an X thread and a devlog about your week, written from your notes for you to review. Pulse never posts for you.
 - **Standup**: a short Yesterday, Today and Blockers draft from your latest completed daily note. Run `skills/standup/SKILL.md` when you need a team update; it never sends the draft.
 - **Brag document**: a review draft for a date range, grouped by project, with outcomes, decisions and hard bugs fixed. Every claim links to its daily note. Run `skills/brag/SKILL.md --from YYYY-MM-DD --to YYYY-MM-DD`; it never sends the draft.
-- **Rules suggestions**: review recurring Rule entries in daily notes and propose new instructions for the current project's CLAUDE.md. Nothing changes without your approval.
+- **Rules suggestions**: turns the `Rule:` entries your notes hold for a project into proposed additions to that project's CLAUDE.md. Install with `python3 skills/setup/install.py rules`, then run `/pulse-rules` inside the project; nothing is written without your approval.
 
 More can follow the same pattern: small skills that read your notes. They are all possible because your history is plain files you own, not locked inside an app.
 
@@ -137,7 +137,7 @@ python3 skills/setup/install.py recall                                # /pulse-r
 python3 skills/setup/install.py rules                                 # /pulse-rules
 ```
 
-After setup, capture is on and every session is recorded. Run `/pulse-rules` to review recurring rules and propose CLAUDE.md additions; it never edits the file without your approval.
+After setup, capture is on and every session is recorded.
 
 ## Uninstall
 
