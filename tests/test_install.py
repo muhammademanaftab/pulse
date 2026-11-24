@@ -229,6 +229,28 @@ def test_uninstall_unlinks_recall_without_following_symlink():
         assert (target / "SKILL.md").read_text(encoding="utf-8") == "keep this"
 
 
+
+
+def test_install_rules_skill_uses_absolute_script_path():
+    with installation():
+        with patch.object(sys, "argv", ["install.py", "rules"]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            assert setup.main() == 0
+
+        dest = Path(setup.CLAUDE_DIR) / "skills" / "pulse-rules" / "SKILL.md"
+        assert dest.is_file()
+        content = dest.read_text(encoding="utf-8")
+        script = str(REPO / "skills" / "rules" / "rules.py").replace("\\", "/")
+        assert script in content, content
+        assert "python3 skills/rules/rules.py" not in content
+
+
+def test_uninstall_removes_pulse_rules_skill():
+    with installation():
+        rules = Path(setup.CLAUDE_DIR) / "skills" / "pulse-rules"
+        write(rules / "SKILL.md", "synthetic rules skill")
+        uninstall()
+        assert not rules.exists()
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:

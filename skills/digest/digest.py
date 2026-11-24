@@ -33,7 +33,7 @@ from common import (  # noqa: E402
     BANNED_RE, DASH_RE, DATE_FILE_RE, LOOP_TAG_RE, TASK_RE, UNSAFE_LABEL_RE, cfg_get, get_tz, h2_body,
     link_into_hubs, list_dated_notes, load_config, loop_text, notes_repo_dir, pulse_home,
     read_note,
-    render_label, strip_code, strip_code_blocks, utf8_stdio)
+    render_label, rx_search, strip_comment, strip_code, strip_code_blocks, utf8_stdio, load_labels, path_label)
 
 TRIVIAL_PROMPTS = {
     "hi", "hello", "hey", "yo", "thanks", "thank you", "ty", "ok", "okay", "k",
@@ -84,71 +84,6 @@ def convex_creds() -> tuple[str | None, str | None, str | None]:
     return url, token, None
 
 
-def _unq(s: str) -> str:
-    return s[1:-1] if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'" else s
-
-
-def strip_comment(line: str) -> str:
-    quote = None
-    for i, ch in enumerate(line):
-        if quote:
-            quote = None if ch == quote else quote
-        elif ch in "\"'" and line[:i].rstrip()[-1:] in ("", ":", "-"):
-            quote = ch
-        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
-            return line[:i]
-    return line
-
-
-def load_labels(path: str) -> dict:
-    result = {"mappings": {}, "fallback": None, "path_patterns": [], "noise_patterns": []}
-    if not path or not os.path.isfile(path):
-        return result
-    section, item = None, None
-    try:
-        for raw in open(path, encoding="utf-8"):
-            line = strip_comment(raw.rstrip("\n")).rstrip()
-            if not line.strip():
-                continue
-            indent = len(line) - len(line.lstrip())
-            s = line.strip()
-            if indent == 0 and s.endswith(":"):
-                section, item = s[:-1], None
-            elif indent == 0 and ":" in s:
-                k, _, v = s.partition(":")
-                if k.strip() == "fallback":
-                    result["fallback"] = _unq(v.strip())
-                section = None
-            elif section == "mappings" and ":" in s:
-                k, _, v = s.partition(":")
-                result["mappings"][_unq(k.strip())] = _unq(v.strip())
-            elif section in ("path_patterns", "noise_patterns"):
-                if s.startswith("- "):
-                    item = {}
-                    result[section].append(item)
-                    rest = s[2:].strip()
-                    if ":" in rest:
-                        k, _, v = rest.partition(":")
-                        item[k.strip()] = _unq(v.strip())
-                elif item is not None and ":" in s:
-                    k, _, v = s.partition(":")
-                    item[k.strip()] = _unq(v.strip())
-    except Exception:
-        pass
-    return result
-
-
-def rx_search(rx: str, text: str) -> bool:
-    try:
-        return re.search(rx, text) is not None
-    except re.error as e:
-        print(f"warning: bad regex {rx!r} in project labels: {e}", file=sys.stderr)
-        return False
-
-
-def path_label(cwd: str, labels: dict) -> str | None:
-    return next((p["label"] for p in labels.get("path_patterns", [])
-                 if cwd and p.get("regex") and p.get("label") and rx_search(p["regex"], cwd)), None)
 
 
 def canonical_project(event: dict, labels: dict) -> str:

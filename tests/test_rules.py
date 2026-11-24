@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -39,16 +39,14 @@ def make_environment(root, notes, claude=""):
 
 def collect_in(root, notes, claude=""):
     project, pulse, vault = make_environment(root, notes, claude)
-    with (
-        patch.object(rules, "pulse_home", return_value=str(pulse)),
-        patch.object(rules, "load_config", return_value={}),
-        patch.object(rules, "notes_repo_dir", return_value=str(vault)),
-        patch.object(
-            rules, "cfg_get",
-            side_effect=lambda cfg, key, env, default: default
-        ),
-    ):
-        return rules.collect(str(project))
+    with patch.object(rules, "pulse_home", return_value=str(pulse)):
+        with patch.object(rules, "load_config", return_value={}):
+            with patch.object(rules, "notes_repo_dir", return_value=str(vault)):
+                with patch.object(
+                    rules, "cfg_get",
+                    side_effect=lambda cfg, key, env, default: default
+                ):
+                    return rules.collect(str(project))
 
 
 def test_collects_rules_and_excludes_learned():
@@ -101,14 +99,14 @@ def test_existing_claude_file_is_returned_unchanged():
         }]
 
 
-if __name__ == "__main__":
-    tests = [
-        test_collects_rules_and_excludes_learned,
-        test_project_with_no_rules,
-        test_same_rule_on_two_days_keeps_both_dates,
-        test_existing_claude_file_is_returned_unchanged,
-    ]
+def main() -> int:
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:
         test()
-        print(f"PASS {test.__name__}")
-    print(f"OK {len(tests)} tests")
+        print(f"OK {test.__name__}")
+    print(f"\n{len(tests)} passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

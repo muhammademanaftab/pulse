@@ -1,18 +1,28 @@
-﻿#!/usr/bin/env python3
-"""Collect dated Rule bullets for the current mapped project."""
+#!/usr/bin/env python3
+"""Collect dated Rule bullets for the current Git project."""
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "shared"))
 
 from common import (  # noqa: E402
-    cfg_get, load_config, list_dated_notes, notes_repo_dir,
-    parse_note, pulse_home, read_note, strip_code_blocks,
+    cfg_get,
+    load_config,
+    list_dated_notes,
+    load_labels,
+    notes_repo_dir,
+    parse_note,
+    path_label,
+    pulse_home,
+    read_note,
+    strip_code_blocks,
+    utf8_stdio,
 )
 
 
@@ -20,49 +30,42 @@ class RulesError(Exception):
     pass
 
 
-def load_project_mapping(path: str) -> dict[str, str]:
-    """Read the simple mappings section of project-labels.yaml."""
-    mappings = {}
-    if not os.path.isfile(path):
-        raise RulesError(
-            f"Project label map not found: {path}. "
-            "Configure Pulse notes first and add this folder under mappings."
+def git_root(project_dir: str) -> str:
+    """Return the Git repository root, or project_dir outside a Git repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=project_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=True,
         )
-
-    in_mappings = False
-    with open(path, encoding="utf-8") as file:
-        for raw in file:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            if not raw.startswith((" ", "\t")):
-                in_mappings = line == "mappings:"
-                continue
-            if in_mappings and ":" in line:
-                key, value = line.split(":", 1)
-                key, value = key.strip().strip("'\""), value.strip().strip("'\"")
-                if key and value:
-                    mappings[key] = value
-    return mappings
+        return os.path.abspath(result.stdout.strip())
+    except (OSError, subprocess.CalledProcessError):
+        return project_dir
 
 
 def select_target_file(project_dir: str) -> str:
-    """Select the supported instruction file. Extend here for future formats."""
+    """Select the supported instruction file; keep this separate from collection."""
     return os.path.join(project_dir, "CLAUDE.md")
 
 
 def collect(project_dir: str | None = None) -> dict:
     project_dir = os.path.abspath(project_dir or os.getcwd())
+    project_dir = git_root(project_dir)
+
     folder = os.path.basename(os.path.normpath(project_dir))
     labels_path = os.path.join(pulse_home(), "project-labels.yaml")
-    mappings = load_project_mapping(labels_path)
+    labels = load_labels(labels_path)
 
-    if folder not in mappings:
-        raise RulesError(
-            f"Folder '{folder}' is not mapped in {labels_path}. "
-            f"Add '{folder}: Your Project Name' under mappings, then retry."
-        )
-    project = mappings[folder]
+    # Prefer an explicit mapping, then a matching path pattern, then the
+    # repository folder name. Unmapped projects must still work.
+    project = labels.get("mappings", {}).get(folder)
+    if not project:
+        project = path_label(project_dir, labels)
+    if not project:
+        project = folder
 
     cfg = load_config()
     repo = notes_repo_dir(cfg)
@@ -77,18 +80,33 @@ def collect(project_dir: str | None = None) -> dict:
     )
     daily_dir = os.path.join(repo, daily_subfolder)
     entries = []
+    available_labels = set()
+    matching_block_found = False
 
     for path in list_dated_notes(daily_dir):
         date = os.path.splitext(os.path.basename(path))[0]
         _, blocks = parse_note(strip_code_blocks(read_note(path)))
+
         for block in blocks:
-            if block["project"].casefold() != project.casefold():
+            label = block["project"]
+            available_labels.add(label)
+
+            if label.casefold() != project.casefold():
                 continue
+
+            matching_block_found = True
             for bullet in block["bullets"]:
                 if bullet.startswith("Rule:"):
                     rule = bullet[len("Rule:"):].strip()
                     if rule:
                         entries.append({"date": date, "rule": rule})
+
+    if not matching_block_found:
+        available = ", ".join(sorted(available_labels)) or "(none found)"
+        raise RulesError(
+            f"No daily-note project blocks found for '{project}'. "
+            f"Available project labels: {available}"
+        )
 
     target = select_target_file(project_dir)
     existing = ""
@@ -102,18 +120,22 @@ def collect(project_dir: str | None = None) -> dict:
         "target_file": target,
         "existing_content": existing,
         "rules": entries,
+        "available_labels": sorted(available_labels),
     }
 
 
 def main() -> int:
+    utf8_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-dir", default=os.getcwd())
     args = parser.parse_args()
+
     try:
         result = collect(args.project_dir)
     except (RulesError, OSError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
+
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
