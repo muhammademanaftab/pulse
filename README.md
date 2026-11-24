@@ -134,9 +134,10 @@ If you would rather run the mechanical parts yourself:
 python3 skills/setup/install.py                                       # capture
 python3 skills/setup/install.py notes --repo ~/pulse-notes --create   # notes config
 python3 skills/setup/install.py recall                                # /pulse-recall
+python3 skills/setup/install.py rules                                 # /pulse-rules
 ```
 
-After setup, capture is on and every session is recorded.
+After setup, capture is on and every session is recorded. Run `/pulse-rules` to review recurring rules and propose CLAUDE.md additions; it never edits the file without your approval.
 
 ## Uninstall
 
@@ -146,7 +147,7 @@ From this clone, run:
 python3 skills/setup/install.py uninstall
 ```
 
-This removes Pulse's Stop hook, the installed capture script and `/pulse-recall`.
+This removes Pulse's Stop hook, the installed capture script, `/pulse-recall` and `/pulse-rules`.
 Other hooks are kept, and settings are backed up to `~/.claude/settings.json.bak`
 before any Pulse entries are removed. Running it again prints `nothing to remove`.
 

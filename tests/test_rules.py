@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -8,7 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills" / "rules")
 import rules
 
 
-def make_environment(root, notes, claude="", project_label="Demo App"):
+def make_environment(
+    root, notes, claude="", project_label="Demo App", labels_content=None
+):
     root = Path(root)
     project = root / "demo"
     project.mkdir(parents=True)
@@ -16,7 +19,7 @@ def make_environment(root, notes, claude="", project_label="Demo App"):
     pulse = root / "pulse"
     pulse.mkdir()
     (pulse / "project-labels.yaml").write_text(
-        "mappings:\n  demo: Demo App\n", encoding="utf-8"
+        labels_content or "mappings:\n  demo: Demo App\n", encoding="utf-8"
     )
 
     vault = root / "vault"
@@ -37,8 +40,28 @@ def make_environment(root, notes, claude="", project_label="Demo App"):
     return project, pulse, vault
 
 
-def collect_in(root, notes, claude="", labels_path=None, project_label="Demo App"):
-    project, pulse, vault = make_environment(root, notes, claude, project_label)
+def collect_in(
+    root,
+    notes,
+    claude="",
+    labels_path=None,
+    project_label="Demo App",
+    labels_content=None,
+    git_subfolder=False,
+):
+    project, pulse, vault = make_environment(
+        root, notes, claude, project_label, labels_content
+    )
+    start_dir = project
+    if git_subfolder:
+        subprocess.run(
+            ["git", "init", str(project)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        start_dir = project / "src"
+        start_dir.mkdir()
     with patch.object(rules, "pulse_home", return_value=str(pulse)):
         with patch.object(rules, "load_config", return_value={}):
             with patch.object(rules, "notes_repo_dir", return_value=str(vault)):
@@ -48,7 +71,7 @@ def collect_in(root, notes, claude="", labels_path=None, project_label="Demo App
                         labels_path if key == "project_labels" and labels_path else default
                     ),
                 ):
-                    return rules.collect(str(project))
+                    return rules.collect(str(start_dir))
 
 
 def test_collects_rules_and_excludes_learned():
@@ -85,6 +108,44 @@ def test_configured_project_labels_path_and_path_pattern():
             "date": "2026-11-21",
             "rule": "Keep functions small.",
         }]
+
+
+def test_subfolder_uses_git_repository_label():
+    with tempfile.TemporaryDirectory() as tmp:
+        result = collect_in(
+            tmp,
+            {"2026-11-21": ["Rule: Keep functions small."]},
+            git_subfolder=True,
+        )
+        assert result["project"] == "Demo App"
+        assert result["project_dir"] == str(Path(tmp) / "demo")
+
+
+def test_unmapped_folder_uses_its_folder_name():
+    with tempfile.TemporaryDirectory() as tmp:
+        result = collect_in(
+            tmp,
+            {"2026-11-21": ["Rule: Keep functions small."]},
+            project_label="demo",
+            labels_content="mappings: {}" + "\n",
+        )
+        assert result["project"] == "demo"
+
+
+def test_missing_project_block_lists_available_labels():
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            collect_in(
+                tmp,
+                {"2026-11-21": ["Rule: Keep functions small."]},
+                project_label="Other Project",
+            )
+        except rules.RulesError as error:
+            assert "Other Project" in str(error)
+            assert "Available project labels: Other Project" in str(error)
+        else:
+            raise AssertionError("Expected RulesError for a missing project block")
+
 
 def test_project_with_no_rules():
     with tempfile.TemporaryDirectory() as tmp:

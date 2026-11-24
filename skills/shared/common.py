@@ -347,5 +347,14 @@ def rx_search(rx: str, text: str) -> bool:
 
 
 def path_label(cwd: str, labels: dict) -> str | None:
-    return next((p["label"] for p in labels.get("path_patterns", [])
-                 if cwd and p.get("regex") and p.get("label") and rx_search(p["regex"], cwd)), None)
+    return next(
+        (
+            pattern["label"]
+            for pattern in labels.get("path_patterns", [])
+            if cwd
+            and pattern.get("regex")
+            and pattern.get("label")
+            and rx_search(pattern["regex"], cwd)
+        ),
+        None,
+    )

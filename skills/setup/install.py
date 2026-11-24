@@ -299,6 +299,7 @@ def cmd_recall() -> int:
           "   it runs the script in this clone, so re-run this if you move the repo")
     return 0
 
+
 def cmd_rules() -> int:
     script = os.path.join(REPO, "skills", "rules", "rules.py").replace("\\", "/")
     python = f'"{_py}"' if os.name == "nt" else "python3"
@@ -312,6 +313,7 @@ def cmd_rules() -> int:
     print(f"   installed /pulse-rules at {dest}\n"
           "   it runs the script in this clone, so re-run this if you move the repo")
     return 0
+
 
 def cmd_uninstall() -> int:
     removed = False
