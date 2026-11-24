@@ -303,7 +303,8 @@ def cmd_rules() -> int:
     script = os.path.join(REPO, "skills", "rules", "rules.py").replace("\\", "/")
     python = f'"{_py}"' if os.name == "nt" else "python3"
     text = open(os.path.join(REPO, "skills", "rules", "SKILL.md"), encoding="utf-8").read()
-    text = text.replace("python3 skills/rules/rules.py", f'{python} "{script}"')
+    text = text.replace("name: rules", "name: pulse-rules", 1).replace(
+        "python3 skills/rules/rules.py", f'{python} "{script}"')
     dest = os.path.join(CLAUDE_DIR, "skills", "pulse-rules", "SKILL.md")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w", encoding="utf-8", newline="\n") as f:

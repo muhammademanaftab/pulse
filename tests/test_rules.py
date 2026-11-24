@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills" / "rules")
 import rules
 
 
-def make_environment(root, notes, claude=""):
+def make_environment(root, notes, claude="", project_label="Demo App"):
     root = Path(root)
     project = root / "demo"
     project.mkdir(parents=True)
@@ -27,7 +27,7 @@ def make_environment(root, notes, claude=""):
             "# Daily note\n\n"
             "## Summary\n\nWork completed.\n\n"
             "## Work log\n\n"
-            "### **Demo App**\n"
+            f"### **{project_label}**\n"
             + "".join(f"- {bullet}\n" for bullet in bullets)
         )
         (daily / f"{date}.md").write_text(content, encoding="utf-8")
@@ -37,14 +37,16 @@ def make_environment(root, notes, claude=""):
     return project, pulse, vault
 
 
-def collect_in(root, notes, claude=""):
-    project, pulse, vault = make_environment(root, notes, claude)
+def collect_in(root, notes, claude="", labels_path=None, project_label="Demo App"):
+    project, pulse, vault = make_environment(root, notes, claude, project_label)
     with patch.object(rules, "pulse_home", return_value=str(pulse)):
         with patch.object(rules, "load_config", return_value={}):
             with patch.object(rules, "notes_repo_dir", return_value=str(vault)):
                 with patch.object(
                     rules, "cfg_get",
-                    side_effect=lambda cfg, key, env, default: default
+                    side_effect=lambda cfg, key, env, default: (
+                        labels_path if key == "project_labels" and labels_path else default
+                    ),
                 ):
                     return rules.collect(str(project))
 
@@ -63,6 +65,26 @@ def test_collects_rules_and_excludes_learned():
             "rule": "Add tests for every bug fix.",
         }]
 
+
+
+def test_configured_project_labels_path_and_path_pattern():
+    with tempfile.TemporaryDirectory() as tmp:
+        custom_labels = Path(tmp) / "custom-labels.yaml"
+        custom_labels.write_text(
+            "path_patterns:\n  - regex: 'demo$'\n    label: Demo Path\n",
+            encoding="utf-8",
+        )
+        result = collect_in(
+            tmp,
+            {"2026-11-21": ["Rule: Keep functions small."]},
+            labels_path=str(custom_labels),
+            project_label="Demo Path",
+        )
+        assert result["project"] == "Demo Path"
+        assert result["rules"] == [{
+            "date": "2026-11-21",
+            "rule": "Keep functions small.",
+        }]
 
 def test_project_with_no_rules():
     with tempfile.TemporaryDirectory() as tmp:

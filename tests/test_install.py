@@ -242,6 +242,8 @@ def test_install_rules_skill_uses_absolute_script_path():
         content = dest.read_text(encoding="utf-8")
         script = str(REPO / "skills" / "rules" / "rules.py").replace("\\", "/")
         assert script in content, content
+        assert "name: pulse-rules" in content
+        assert "name: rules" not in content
         assert "python3 skills/rules/rules.py" not in content
 
 

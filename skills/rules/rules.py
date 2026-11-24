@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+from typing import Optional
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "shared"))
@@ -51,13 +52,17 @@ def select_target_file(project_dir: str) -> str:
     return os.path.join(project_dir, "CLAUDE.md")
 
 
-def collect(project_dir: str | None = None) -> dict:
+def collect(project_dir: Optional[str] = None) -> dict:
     project_dir = os.path.abspath(project_dir or os.getcwd())
     project_dir = git_root(project_dir)
 
     folder = os.path.basename(os.path.normpath(project_dir))
-    labels_path = os.path.join(pulse_home(), "project-labels.yaml")
-    labels = load_labels(labels_path)
+    cfg = load_config()
+    labels_path = cfg_get(
+        cfg, "project_labels", None,
+        os.path.join(pulse_home(), "project-labels.yaml")
+    )
+    labels = load_labels(os.path.expanduser(labels_path))
 
     # Prefer an explicit mapping, then a matching path pattern, then the
     # repository folder name. Unmapped projects must still work.
@@ -67,7 +72,6 @@ def collect(project_dir: str | None = None) -> dict:
     if not project:
         project = folder
 
-    cfg = load_config()
     repo = notes_repo_dir(cfg)
     if not repo:
         raise RulesError(
