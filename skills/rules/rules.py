@@ -39,6 +39,7 @@ def git_root(project_dir: str) -> str:
             cwd=project_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            encoding="utf-8",
             text=True,
             check=True,
         )
