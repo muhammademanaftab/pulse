@@ -118,7 +118,7 @@ def test_subfolder_uses_git_repository_label():
             git_subfolder=True,
         )
         assert result["project"] == "Demo App"
-        assert Path(result["project_dir"]) == Path(tmp) / "demo"
+        assert os.path.samefile(result["project_dir"], str(Path(tmp) / "demo"))
 
 
 def test_unmapped_folder_uses_its_folder_name():
