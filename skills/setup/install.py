@@ -4,7 +4,8 @@
   python3 skills/setup/install.py                         wire capture (default)
   python3 skills/setup/install.py notes --repo <path> --create   configure daily notes
   python3 skills/setup/install.py recall                  install the /pulse-recall skill
-  python3 skills/setup/install.py uninstall               remove the hook and recall skill
+  python3 skills/setup/install.py rules                   install the /pulse-rules skill
+  python3 skills/setup/install.py uninstall               remove hooks and installed skills
 """
 from __future__ import annotations
 
@@ -299,6 +300,21 @@ def cmd_recall() -> int:
     return 0
 
 
+def cmd_rules() -> int:
+    script = os.path.join(REPO, "skills", "rules", "rules.py").replace("\\", "/")
+    python = f'"{_py}"' if os.name == "nt" else "python3"
+    text = open(os.path.join(REPO, "skills", "rules", "SKILL.md"), encoding="utf-8").read()
+    text = text.replace("name: rules", "name: pulse-rules", 1).replace(
+        "python3 skills/rules/rules.py", f'{python} "{script}"')
+    dest = os.path.join(CLAUDE_DIR, "skills", "pulse-rules", "SKILL.md")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    print(f"   installed /pulse-rules at {dest}\n"
+          "   it runs the script in this clone, so re-run this if you move the repo")
+    return 0
+
+
 def cmd_uninstall() -> int:
     removed = False
     try:
@@ -346,6 +362,14 @@ def cmd_uninstall() -> int:
                 shutil.rmtree(recall)
             removed = True
             print(f"Removed {recall}")
+        rules = os.path.join(CLAUDE_DIR, "skills", "pulse-rules")
+        if os.path.lexists(rules):
+            if os.path.islink(rules) or os.path.isfile(rules):
+                os.unlink(rules)
+            else:
+                shutil.rmtree(rules)
+            removed = True
+            print(f"Removed {rules}")
     except OSError as e:
         die(f"could not finish uninstall: {e}")
     if not removed:
@@ -364,12 +388,15 @@ def main() -> int:
     n.add_argument("--create", action="store_true")
     n.add_argument("--timezone", default=None)
     sub.add_parser("recall")
+    sub.add_parser("rules")
     sub.add_parser("uninstall")
     args = p.parse_args()
     if args.cmd == "notes":
         return cmd_notes(args)
     if args.cmd == "recall":
         return cmd_recall()
+    if args.cmd == "rules":
+        return cmd_rules()
     if args.cmd == "uninstall":
         return cmd_uninstall()
     return cmd_capture()
