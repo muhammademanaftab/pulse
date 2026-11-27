@@ -84,6 +84,9 @@ jobs:
       - name: Daily note structure, open loops, label folding tests
         run: python3 tests/test_digest.py
 
+      - name: Estimated timesheet tests
+        run: python3 tests/test_timesheet.py
+
       - name: Weekly synth parser tests
         run: python3 tests/test_synth.py
 

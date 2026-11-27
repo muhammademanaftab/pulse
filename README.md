@@ -55,6 +55,8 @@ Made the app open much faster, fixed a bug that was dropping some notifications,
 
 ## More than a journal
 
+- **Estimated timesheet**: captured Claude Code hours per project, with configurable gaps and rounding. Run `skills/timesheet/SKILL.md` for a JSON, Markdown or CSV draft.
+
 Pulse is built from small skills. The daily note is the first one: it reads your day and writes it up like you would.
 
 Every other skill just reads those notes. These work today:

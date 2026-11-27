@@ -34,7 +34,9 @@ from common import (  # noqa: E402
     link_into_hubs, list_dated_notes, load_config, loop_text, notes_repo_dir, pulse_home,
     read_note,
     render_label, strip_code, strip_code_blocks, utf8_stdio,
-    load_labels, path_label, rx_search, strip_comment)
+    load_labels, path_label, rx_search, strip_comment,
+    load_convex_env, convex_creds, canonical_project, is_noise_folder, clean_label,
+    resolve_labels, is_install_probe, row_id, normalize, fetch_convex_range)
 
 TRIVIAL_PROMPTS = {
     "hi", "hello", "hey", "yo", "thanks", "thank you", "ty", "ok", "okay", "k",
@@ -52,94 +54,6 @@ PREFIX_RE = re.compile(r"^- (\*\*)?(outcome|decided|bug|rule|learned|open|refs)(
 CLOSED_RE = re.compile(r",\s*(?:done [A-Z][a-z]{2} \d{1,2}|dropped [A-Z][a-z]{2} \d{1,2}:)")
 
 
-def load_convex_env() -> tuple[str | None, str | None]:
-    url, token = os.environ.get("CONVEX_URL"), os.environ.get("CONVEX_TOKEN")
-    if url and token:
-        return url, token
-    env_file = os.path.join(pulse_home(), ".env")
-    if os.path.isfile(env_file):
-        try:
-            for line in open(env_file, encoding="utf-8"):
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                k, v = k.strip(), v.strip().strip('"').strip("'")
-                if k == "CONVEX_URL" and not url:
-                    url = v
-                elif k == "CONVEX_TOKEN" and not token:
-                    token = v
-        except Exception:
-            pass
-    return url, token
-
-
-def convex_creds() -> tuple[str | None, str | None, str | None]:
-    """(url, token, error). error is set when the creds are missing or unsafe."""
-    url, token = load_convex_env()
-    if not url or not token:
-        return None, None, "no CONVEX_URL/CONVEX_TOKEN; run skills/setup/install.py"
-    if not url.startswith("https://"):
-        return None, None, ("CONVEX_URL must start with https:// (refusing to send "
-                            "the token over cleartext)")
-    return url, token, None
-
-
-
-
-def canonical_project(event: dict, labels: dict) -> str:
-    project, cwd = event.get("project") or "", event.get("cwd") or ""
-    mappings = labels.get("mappings", {})
-    if project and project in mappings:
-        return mappings[project]
-    if cwd:
-        base = os.path.basename(cwd.rstrip("/"))
-        if base in mappings:
-            return mappings[base]
-        if (hit := path_label(cwd, labels)):
-            return hit
-    if project and project not in ("", "unknown"):
-        return project
-    return labels.get("fallback") or "Misc"
-
-
-def is_noise_folder(event: dict, labels: dict) -> bool:
-    folder = os.path.basename((event.get("cwd") or "").rstrip("/"))
-    raw = event.get("project") or folder
-    if raw in labels.get("mappings", {}) or folder in labels.get("mappings", {}):
-        return False
-    return bool(raw) and any(
-        e.get("regex") and rx_search(e["regex"], raw) for e in labels.get("noise_patterns", []))
-
-
-def clean_label(label: str) -> str:
-    """A label becomes a heading, a link and a file name, so drop what breaks those."""
-    return re.sub(r"\s+", " ", UNSAFE_LABEL_RE.sub(" ", label)).strip(" .") or "Misc"
-
-
-def resolve_labels(events: list[dict], labels: dict) -> list[str]:
-    """A scratch-folder event takes a path_patterns hit on its full path, else the
-    label of the nearest-in-time real event in its session, else the fallback."""
-    fallback = labels.get("fallback") or "Misc"
-    real: dict[int, str] = {}
-    by_session: dict[str, list] = {}
-    for i, e in enumerate(events):
-        if is_noise_folder(e, labels):
-            continue
-        real[i] = lab = canonical_project(e, labels)
-        if e.get("session") and lab != fallback:
-            by_session.setdefault(e["session"], []).append((e.get("ts", 0), lab))
-    out = []
-    for i, e in enumerate(events):
-        if i in real:
-            out.append(real[i])
-            continue
-        near = by_session.get(e.get("session") or "")
-        out.append(path_label(e.get("cwd") or "", labels)
-                   or (min(near, key=lambda c: abs(c[0] - e.get("ts", 0)))[1] if near else fallback))
-    return out
-
-
 def resolve_date(arg: str | None, tz) -> str:
     now = datetime.now(tz)
     if not arg or arg == "yesterday":
@@ -153,28 +67,6 @@ def resolve_date(arg: str | None, tz) -> str:
 def is_noise(prompt: str) -> bool:
     s = (prompt or "").strip().lower().rstrip("!.?")
     return s == "" or s in TRIVIAL_PROMPTS
-
-
-def is_install_probe(event: dict) -> bool:
-    """The row skills/setup/install.py posts to verify the deployment."""
-    return event["session"] == "install-verify" and event["project"] == "pulse-install"
-
-
-def row_id(row: dict) -> str:
-    return row.get("_id") or row.get("id") or ""
-
-
-def normalize(row: dict) -> dict:
-    return {
-        "id": row_id(row),
-        "ts": row.get("ts", 0),
-        "timestamp": row.get("timestamp", ""),
-        "prompt": row.get("message", "") or "",
-        "response": row.get("response", "") or "",
-        "project": row.get("project", "") or "",
-        "cwd": (row.get("projectPath", "") or row.get("project_path", "") or "").replace("\\", "/"),
-        "session": row.get("sessionId", "") or "",
-    }
 
 
 def defer_today(date: str, now: datetime, include_today: bool) -> bool:
@@ -198,10 +90,8 @@ def cmd_fetch(args) -> int:
 
     start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=tz)
     start_ms, end_ms = int(start.timestamp() * 1000), int((start + timedelta(days=1)).timestamp() * 1000)
-    endpoint = f"{url.rstrip('/')}/all?startTs={start_ms}&endTs={end_ms}"
     try:
-        with urlopen(Request(endpoint, headers={"Authorization": f"Bearer {token}"}), timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = fetch_convex_range(url, token, start_ms, end_ms, urlopen)
     except Exception as e:
         print(json.dumps({"error": f"fetch failed: {e}", "date": date}), file=sys.stderr)
         return 1
